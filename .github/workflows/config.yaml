@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.7'
+      - name: Run Checks
+        run: |
+          (make lint) &
+          pid_lint=$!
+          (make vuln) &
+          pid_vuln=$!
+
+          wait $pid_lint || exit 1
+          wait $pid_vuln || exit 1
+      - name: Run Tests
+        run: make test
