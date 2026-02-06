@@ -17,7 +17,7 @@ import (
 
 // Client enables use of a http client for a given device.
 // It sets a default *http.Client and *http.Transport, which
-// can be cusomized via optional funcs.
+// can be customized via optional funcs.
 type Client struct {
 	c      *http.Client
 	logger *slog.Logger
@@ -142,7 +142,7 @@ func Request(ctx context.Context, reqURL *url.URL, method string, opts ...Reques
 
 	req, err := http.NewRequestWithContext(ctx, method, reqURL.String(), &payload)
 	if err != nil {
-		return nil, fmt.Errorf("insantiating request: %w", err)
+		return nil, fmt.Errorf("instantiating request: %w", err)
 	}
 
 	for _, cookie := range settings.cookies {

@@ -133,6 +133,9 @@ func TestClient_Do(t *testing.T) {
 		expStatus   int
 		payload     *payload
 		captureResp *payload
+		captureRaw  *map[string]any
+		useJSONNumb bool
+		checkResp   func(t *testing.T, raw map[string]any)
 		err         error
 	}{
 		"basicGet": {
@@ -177,6 +180,46 @@ func TestClient_Do(t *testing.T) {
 			payload:     &payload{Body: "hey there"},
 			captureResp: new(payload),
 		},
+		"withJSONNumb": {
+			url:         test.serverURL,
+			path:        "/number",
+			method:      http.MethodGet,
+			expStatus:   http.StatusOK,
+			captureRaw:  &map[string]any{},
+			useJSONNumb: true,
+			checkResp: func(t *testing.T, raw map[string]any) {
+				t.Helper()
+				id, ok := raw["id"]
+				if !ok {
+					t.Fatal("expected 'id' key in response")
+				}
+				n, ok := id.(json.Number)
+				if !ok {
+					t.Fatalf("expected json.Number, got %T", id)
+				}
+				if n.String() != "12345678901234567" {
+					t.Errorf("expected 12345678901234567, got %s", n.String())
+				}
+			},
+		},
+		"withoutJSONNumb": {
+			url:         test.serverURL,
+			path:        "/number",
+			method:      http.MethodGet,
+			expStatus:   http.StatusOK,
+			captureRaw:  &map[string]any{},
+			useJSONNumb: false,
+			checkResp: func(t *testing.T, raw map[string]any) {
+				t.Helper()
+				id, ok := raw["id"]
+				if !ok {
+					t.Fatal("expected 'id' key in response")
+				}
+				if _, ok := id.(float64); !ok {
+					t.Fatalf("expected float64 without UseNumber, got %T", id)
+				}
+			},
+		},
 	}
 
 	const dlFileName = "test.json"
@@ -190,7 +233,13 @@ func TestClient_Do(t *testing.T) {
 
 			var opts []httper.DoOption
 			if tc.captureResp != nil {
-				opts = append(opts, httper.WithDestination[payload](tc.captureResp))
+				opts = append(opts, httper.WithDestination(tc.captureResp))
+			}
+			if tc.captureRaw != nil {
+				opts = append(opts, httper.WithDestination(tc.captureRaw))
+			}
+			if tc.useJSONNumb {
+				opts = append(opts, httper.WithJSONNumb())
 			}
 
 			if len(tc.path) > 0 {
@@ -216,6 +265,10 @@ func TestClient_Do(t *testing.T) {
 					t.Errorf("expected identitcal body from echo server; diff %v", cmp.Diff(tc.captureResp, tc.payload))
 				}
 			}
+
+			if tc.checkResp != nil && tc.captureRaw != nil {
+				tc.checkResp(t, *tc.captureRaw)
+			}
 		})
 	}
 }
@@ -227,6 +280,7 @@ func TestClient_Request(t *testing.T) {
 		payload     *payload
 		contentType string
 		headers     map[string][]string
+		cookies     []*http.Cookie
 	}{
 		"basic": {
 			url:         httper.URL("https", "localhost", "/", httper.WithPort(8888)),
@@ -259,6 +313,22 @@ func TestClient_Request(t *testing.T) {
 				"Multi-Val":  {"value", "value2"},
 			},
 		},
+		"withSingleCookie": {
+			url:    httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			method: http.MethodGet,
+			cookies: []*http.Cookie{
+				{Name: "session", Value: "abc123"},
+			},
+		},
+		"withMultipleCookies": {
+			url:    httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			method: http.MethodGet,
+			cookies: []*http.Cookie{
+				{Name: "session", Value: "abc123"},
+				{Name: "theme", Value: "dark"},
+				{Name: "lang", Value: "en"},
+			},
+		},
 	}
 
 	const defaultContentType = "application/json"
@@ -276,6 +346,10 @@ func TestClient_Request(t *testing.T) {
 
 			if tc.headers != nil {
 				opts = append(opts, httper.WithHeaders(tc.headers))
+			}
+
+			if tc.cookies != nil {
+				opts = append(opts, httper.WithCookies(tc.cookies...))
 			}
 
 			req, err := httper.Request(t.Context(), tc.url, tc.method, opts...)
@@ -330,6 +404,22 @@ func TestClient_Request(t *testing.T) {
 						if hdr[i] != v[i] {
 							t.Errorf("incongruent header value; exp: %v, got: %v", v[i], hdr[i])
 						}
+					}
+				}
+			}
+
+			if tc.cookies != nil {
+				got := req.Cookies()
+				if len(got) != len(tc.cookies) {
+					t.Fatalf("exp %d cookies, got %d", len(tc.cookies), len(got))
+				}
+
+				for i, exp := range tc.cookies {
+					if got[i].Name != exp.Name {
+						t.Errorf("cookie[%d] name: exp %q, got %q", i, exp.Name, got[i].Name)
+					}
+					if got[i].Value != exp.Value {
+						t.Errorf("cookie[%d] value: exp %q, got %q", i, exp.Value, got[i].Value)
 					}
 				}
 			}
@@ -435,10 +525,16 @@ func mockServer(t *testing.T) *test {
 		_, _ = w.Write(data)
 	}
 
+	numberHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":12345678901234567}`))
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/expstatus", exp200Handler)
 	mux.HandleFunc("/echo", echoHandler)
+	mux.HandleFunc("/number", numberHandler)
 	server := httptest.NewServer(mux)
 
 	testURL, err := url.ParseRequestURI(server.URL)
