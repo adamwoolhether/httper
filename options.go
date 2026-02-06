@@ -11,6 +11,7 @@ import (
 
 // ClientOption defines optional settings for the http client.
 //
+// WithLogger injects a custom logger into the client.
 // WithUserAgent adds a persistent `User-Agent` header to all
 // outgoing requests on the client.
 type ClientOption func(*Client) error

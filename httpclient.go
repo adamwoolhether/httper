@@ -166,7 +166,7 @@ func Request(ctx context.Context, reqURL *url.URL, method string, opts ...Reques
 	return req, nil
 }
 
-// URL creates an url.URL for use in Request.
+// URL creates a url.URL for use in Request.
 func URL(scheme, host, path string, opts ...URLOption) *url.URL {
 	var settings urlOpts
 	for _, opt := range opts {
