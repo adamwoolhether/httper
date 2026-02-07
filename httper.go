@@ -6,7 +6,7 @@ import (
 )
 
 // NewClient instantiates a new *Client with the provided options.
-// If not specified, the default htt.Client and htt.Transport are used.Requ
+// If not specified, the default htt.Client and htt.Transport are used.
 func NewClient(opts ...client.Option) (*client.Client, error) {
 	return client.Build(opts...)
 }
