@@ -1,4 +1,4 @@
-package httper_test
+package client_test
 
 import (
 	"bytes"
@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamwoolhether/httper"
-	"github.com/adamwoolhether/httper/throttle"
+	"github.com/adamwoolhether/httper/client"
+	"github.com/adamwoolhether/httper/client/throttle"
 	"github.com/google/go-cmp/cmp"
 )
 
 type test struct {
-	*httper.Client
+	*client.Client
 
 	server    *httptest.Server
 	serverURL *url.URL
@@ -58,7 +58,7 @@ func TestClient_WithUserAgent(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(httper.WithUserAgent(expectedUA))
+	client, err := client.Build(client.WithUserAgent(expectedUA))
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -93,9 +93,9 @@ func TestClient_WithThrottleAndUserAgent(t *testing.T) {
 	}
 
 	// WithThrottle applied before WithUserAgent — order shouldn't matter.
-	client, err := httper.New(
-		httper.WithThrottle(100, 10),
-		httper.WithUserAgent(expectedUA),
+	client, err := client.Build(
+		client.WithThrottle(100, 10),
+		client.WithUserAgent(expectedUA),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
@@ -128,7 +128,7 @@ func TestClient_WithTransport(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(httper.WithTransport(custom))
+	client, err := client.Build(client.WithTransport(custom))
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -148,14 +148,14 @@ func TestClient_WithTransport(t *testing.T) {
 }
 
 func TestClient_WithTransportNil(t *testing.T) {
-	_, err := httper.New(httper.WithTransport(nil))
+	_, err := client.Build(client.WithTransport(nil))
 	if err == nil {
 		t.Fatal("expected error for nil transport")
 	}
 }
 
 func TestClient_WithTimeout(t *testing.T) {
-	client, err := httper.New(httper.WithTimeout(30 * time.Second))
+	client, err := client.Build(client.WithTimeout(30 * time.Second))
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -183,14 +183,14 @@ func TestClient_WithTimeout(t *testing.T) {
 
 func TestClient_WithTimeoutZero(t *testing.T) {
 	// Zero means no timeout per stdlib.
-	_, err := httper.New(httper.WithTimeout(0))
+	_, err := client.Build(client.WithTimeout(0))
 	if err != nil {
 		t.Fatalf("expected no error for zero timeout, got: %v", err)
 	}
 }
 
 func TestClient_WithTimeoutNegative(t *testing.T) {
-	_, err := httper.New(httper.WithTimeout(-1))
+	_, err := client.Build(client.WithTimeout(-1))
 	if err == nil {
 		t.Fatal("expected error for negative timeout")
 	}
@@ -222,9 +222,9 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 	})
 
 	// Order A: Transport first, then UserAgent.
-	clientA, err := httper.New(
-		httper.WithTransport(custom),
-		httper.WithUserAgent(expectedUA),
+	clientA, err := client.Build(
+		client.WithTransport(custom),
+		client.WithUserAgent(expectedUA),
 	)
 	if err != nil {
 		t.Fatalf("order A: failed to create client: %v", err)
@@ -244,9 +244,9 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 
 	// Order B: UserAgent first, then Transport.
 	transportCalled = false
-	clientB, err := httper.New(
-		httper.WithUserAgent(expectedUA),
-		httper.WithTransport(custom),
+	clientB, err := client.Build(
+		client.WithUserAgent(expectedUA),
+		client.WithTransport(custom),
 	)
 	if err != nil {
 		t.Fatalf("order B: failed to create client: %v", err)
@@ -291,16 +291,16 @@ func TestClient_FullChainComposition(t *testing.T) {
 	})
 
 	// All three options in various orders should produce the same result.
-	orders := [][]httper.ClientOption{
-		{httper.WithTransport(custom), httper.WithUserAgent(expectedUA), httper.WithThrottle(100, 10)},
-		{httper.WithThrottle(100, 10), httper.WithTransport(custom), httper.WithUserAgent(expectedUA)},
-		{httper.WithUserAgent(expectedUA), httper.WithThrottle(100, 10), httper.WithTransport(custom)},
+	orders := [][]client.ClientOption{
+		{client.WithTransport(custom), client.WithUserAgent(expectedUA), client.WithThrottle(100, 10)},
+		{client.WithThrottle(100, 10), client.WithTransport(custom), client.WithUserAgent(expectedUA)},
+		{client.WithUserAgent(expectedUA), client.WithThrottle(100, 10), client.WithTransport(custom)},
 	}
 
 	for i, opts := range orders {
 		transportCalled = false
 
-		client, err := httper.New(opts...)
+		client, err := client.Build(opts...)
 		if err != nil {
 			t.Fatalf("order %d: failed to create client: %v", i, err)
 		}
@@ -332,7 +332,7 @@ func TestClient_WithClient(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(httper.WithClient(custom))
+	client, err := client.Build(client.WithClient(custom))
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestClient_WithClient(t *testing.T) {
 }
 
 func TestClient_WithClientNil(t *testing.T) {
-	_, err := httper.New(httper.WithClient(nil))
+	_, err := client.Build(client.WithClient(nil))
 	if err == nil {
 		t.Fatal("expected error for nil client")
 	}
@@ -374,9 +374,9 @@ func TestClient_WithClientAndWithTimeout(t *testing.T) {
 
 	// Order A: WithClient first, then WithTimeout.
 	custom := &http.Client{Timeout: 1 * time.Millisecond}
-	clientA, err := httper.New(
-		httper.WithClient(custom),
-		httper.WithTimeout(5*time.Second),
+	clientA, err := client.Build(
+		client.WithClient(custom),
+		client.WithTimeout(5*time.Second),
 	)
 	if err != nil {
 		t.Fatalf("order A: failed to create client: %v", err)
@@ -393,9 +393,9 @@ func TestClient_WithClientAndWithTimeout(t *testing.T) {
 
 	// Order B: WithTimeout first, then WithClient.
 	custom = &http.Client{Timeout: 1 * time.Millisecond}
-	clientB, err := httper.New(
-		httper.WithTimeout(5*time.Second),
-		httper.WithClient(custom),
+	clientB, err := client.Build(
+		client.WithTimeout(5*time.Second),
+		client.WithClient(custom),
 	)
 	if err != nil {
 		t.Fatalf("order B: failed to create client: %v", err)
@@ -431,7 +431,7 @@ func TestClient_WithClientCustomTransport(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(httper.WithClient(custom))
+	client, err := client.Build(client.WithClient(custom))
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -473,9 +473,9 @@ func TestClient_WithClientAndWithTransport(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(
-		httper.WithClient(custom),
-		httper.WithTransport(explicitTransport),
+	client, err := client.Build(
+		client.WithClient(custom),
+		client.WithTransport(explicitTransport),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
@@ -513,7 +513,7 @@ func TestClient_WithNoFollowRedirects(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	client, err := httper.New(httper.WithNoFollowRedirects())
+	client, err := client.Build(client.WithNoFollowRedirects())
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -545,9 +545,9 @@ func TestClient_WithClientAndWithNoFollowRedirects(t *testing.T) {
 	}
 
 	// Order A: WithClient first, then WithNoFollowRedirects.
-	clientA, err := httper.New(
-		httper.WithClient(&http.Client{}),
-		httper.WithNoFollowRedirects(),
+	clientA, err := client.Build(
+		client.WithClient(&http.Client{}),
+		client.WithNoFollowRedirects(),
 	)
 	if err != nil {
 		t.Fatalf("order A: failed to create client: %v", err)
@@ -563,9 +563,9 @@ func TestClient_WithClientAndWithNoFollowRedirects(t *testing.T) {
 	}
 
 	// Order B: WithNoFollowRedirects first, then WithClient.
-	clientB, err := httper.New(
-		httper.WithNoFollowRedirects(),
-		httper.WithClient(&http.Client{}),
+	clientB, err := client.Build(
+		client.WithNoFollowRedirects(),
+		client.WithClient(&http.Client{}),
 	)
 	if err != nil {
 		t.Fatalf("order B: failed to create client: %v", err)
@@ -589,7 +589,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestClient_WithThrottleValidation(t *testing.T) {
-	_, err := httper.New(httper.WithThrottle(0, 10))
+	_, err := client.Build(client.WithThrottle(0, 10))
 	if err == nil {
 		t.Fatal("expected error for zero rps")
 	}
@@ -602,7 +602,7 @@ func TestClient_Do(t *testing.T) {
 	test := mockServer(t)
 	defer test.teardown()
 
-	client := test.Client
+	testClient := test.Client
 
 	testCases := map[string]struct {
 		url         *url.URL
@@ -632,7 +632,7 @@ func TestClient_Do(t *testing.T) {
 			expStatus:   http.StatusAccepted,
 			payload:     nil,
 			captureResp: nil,
-			err:         httper.ErrUnexpectedStatusCode,
+			err:         client.ErrUnexpectedStatusCode,
 		},
 		"basicExp202OK": {
 			url:         test.serverURL,
@@ -704,20 +704,20 @@ func TestClient_Do(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			var reqOpts []httper.RequestOption
+			var reqOpts []client.RequestOption
 			if tc.payload != nil {
-				reqOpts = append(reqOpts, httper.WithPayload(*tc.payload))
+				reqOpts = append(reqOpts, client.WithPayload(*tc.payload))
 			}
 
-			var opts []httper.DoOption
+			var opts []client.DoOption
 			if tc.captureResp != nil {
-				opts = append(opts, httper.WithDestination(tc.captureResp))
+				opts = append(opts, client.WithDestination(tc.captureResp))
 			}
 			if tc.captureRaw != nil {
-				opts = append(opts, httper.WithDestination(tc.captureRaw))
+				opts = append(opts, client.WithDestination(tc.captureRaw))
 			}
 			if tc.useJSONNumb {
-				opts = append(opts, httper.WithJSONNumb())
+				opts = append(opts, client.WithJSONNumb())
 			}
 
 			if len(tc.path) > 0 {
@@ -726,12 +726,12 @@ func TestClient_Do(t *testing.T) {
 				tc.url = &copied
 			}
 
-			req, err := client.Request(t.Context(), tc.url, tc.method, reqOpts...)
+			req, err := testClient.Request(t.Context(), tc.url, tc.method, reqOpts...)
 			if err != nil {
 				t.Fatalf("generating req: %v", err)
 			}
 
-			err = client.Do(req, tc.expStatus, opts...)
+			err = testClient.Do(req, tc.expStatus, opts...)
 			if err != nil {
 				if !errors.Is(err, tc.err) {
 					t.Errorf("exp err: %v, got: %v", tc.err, err)
@@ -761,28 +761,28 @@ func TestClient_Request(t *testing.T) {
 		cookies     []*http.Cookie
 	}{
 		"basic": {
-			url:         httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:         client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method:      http.MethodGet,
 			payload:     nil,
 			contentType: "",
 			headers:     nil,
 		},
 		"withPayload": {
-			url:         httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:         client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method:      http.MethodPost,
 			payload:     &payload{Body: "hey there"},
 			contentType: "",
 			headers:     nil,
 		},
 		"withCustomContentType": {
-			url:         httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:         client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method:      http.MethodGet,
 			payload:     nil,
 			contentType: "text/html",
 			headers:     nil,
 		},
 		"withHeaders": {
-			url:         httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:         client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method:      http.MethodPost,
 			payload:     nil,
 			contentType: "",
@@ -792,14 +792,14 @@ func TestClient_Request(t *testing.T) {
 			},
 		},
 		"withSingleCookie": {
-			url:    httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:    client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method: http.MethodGet,
 			cookies: []*http.Cookie{
 				{Name: "session", Value: "abc123"},
 			},
 		},
 		"withMultipleCookies": {
-			url:    httper.URL("https", "localhost", "/", httper.WithPort(8888)),
+			url:    client.URL("https", "localhost", "/", client.WithPort(8888)),
 			method: http.MethodGet,
 			cookies: []*http.Cookie{
 				{Name: "session", Value: "abc123"},
@@ -813,24 +813,24 @@ func TestClient_Request(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			var opts []httper.RequestOption
+			var opts []client.RequestOption
 			if tc.payload != nil {
-				opts = append(opts, httper.WithPayload(*tc.payload))
+				opts = append(opts, client.WithPayload(*tc.payload))
 			}
 
 			if len(tc.contentType) > 0 {
-				opts = append(opts, httper.WithContentType(tc.contentType))
+				opts = append(opts, client.WithContentType(tc.contentType))
 			}
 
 			if tc.headers != nil {
-				opts = append(opts, httper.WithHeaders(tc.headers))
+				opts = append(opts, client.WithHeaders(tc.headers))
 			}
 
 			if tc.cookies != nil {
-				opts = append(opts, httper.WithCookies(tc.cookies...))
+				opts = append(opts, client.WithCookies(tc.cookies...))
 			}
 
-			req, err := httper.Request(t.Context(), tc.url, tc.method, opts...)
+			req, err := client.Request(t.Context(), tc.url, tc.method, opts...)
 			if err != nil {
 				t.Fatalf("create request exp nil err; got: %v", err)
 			}
@@ -942,16 +942,16 @@ func TestClient_URL(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			var opts []httper.URLOption
+			var opts []client.URLOption
 			if tc.qs != nil {
-				opts = append(opts, httper.WithQueryStrings(tc.qs))
+				opts = append(opts, client.WithQueryStrings(tc.qs))
 			}
 			if tc.port != 0 {
 
-				opts = append(opts, httper.WithPort(tc.port))
+				opts = append(opts, client.WithPort(tc.port))
 			}
 
-			url := httper.URL(tc.scheme, tc.host, tc.path, opts...)
+			url := client.URL(tc.scheme, tc.host, tc.path, opts...)
 
 			if url.String() != tc.exp {
 				t.Errorf("exp generated url:, %q, got: %q", tc.exp, url.String())
@@ -965,9 +965,9 @@ const successRespBody = "success"
 func mockServer(t *testing.T) *test {
 	t.Helper()
 
-	client, err := httper.New()
+	testClient, err := client.Build()
 	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
+		t.Fatalf("failed to create testClient: %v", err)
 	}
 
 	rootHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -1021,7 +1021,7 @@ func mockServer(t *testing.T) *test {
 	}
 
 	ts := test{
-		Client:    client,
+		Client:    testClient,
 		server:    server,
 		serverURL: testURL,
 		teardown: func() {

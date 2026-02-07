@@ -1,4 +1,4 @@
-package httper
+package client
 
 import (
 	"errors"

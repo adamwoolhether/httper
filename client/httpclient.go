@@ -1,6 +1,6 @@
 // Package httper exposes a series of helper functions for
 // executing http requests against a remote server.
-package httper
+package client
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/adamwoolhether/httper/throttle"
+	"github.com/adamwoolhether/httper/client/throttle"
 )
 
 // Client wraps the std-lib *http.Client
@@ -23,9 +23,7 @@ type Client struct {
 	logger *slog.Logger
 }
 
-// New instantiates a new *Client with the provided options.
-// If not specified, the default htt.Client and htt.Transport are used.Requ
-func New(opts ...ClientOption) (*Client, error) {
+func Build(opts ...ClientOption) (*Client, error) {
 	client := &Client{
 		c:      http.DefaultClient,
 		logger: slog.Default(),

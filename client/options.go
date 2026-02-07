@@ -1,4 +1,4 @@
-package httper
+package client
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adamwoolhether/httper/throttle"
+	"github.com/adamwoolhether/httper/client/throttle"
 )
 
 // ClientOption defines optional settings for the http client.
