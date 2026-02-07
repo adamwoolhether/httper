@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/adamwoolhether/httper"
 	"github.com/adamwoolhether/httper/throttle"
@@ -62,7 +63,7 @@ func TestClient_WithUserAgent(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	req, err := httper.Request(t.Context(), testURL, http.MethodGet)
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestClient_WithThrottleAndUserAgent(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	req, err := httper.Request(t.Context(), testURL, http.MethodGet)
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
@@ -108,6 +109,483 @@ func TestClient_WithThrottleAndUserAgent(t *testing.T) {
 	if err := client.Do(req, http.StatusOK); err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
+}
+
+func TestClient_WithTransport(t *testing.T) {
+	var called bool
+	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	client, err := httper.New(httper.WithTransport(custom))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := client.Do(req, http.StatusOK); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if !called {
+		t.Error("custom transport was not called")
+	}
+}
+
+func TestClient_WithTransportNil(t *testing.T) {
+	_, err := httper.New(httper.WithTransport(nil))
+	if err == nil {
+		t.Fatal("expected error for nil transport")
+	}
+}
+
+func TestClient_WithTimeout(t *testing.T) {
+	client, err := httper.New(httper.WithTimeout(30 * time.Second))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Verify the timeout was applied by making a request to a slow server.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := client.Do(req, http.StatusOK); err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+func TestClient_WithTimeoutZero(t *testing.T) {
+	// Zero means no timeout per stdlib.
+	_, err := httper.New(httper.WithTimeout(0))
+	if err != nil {
+		t.Fatalf("expected no error for zero timeout, got: %v", err)
+	}
+}
+
+func TestClient_WithTimeoutNegative(t *testing.T) {
+	_, err := httper.New(httper.WithTimeout(-1))
+	if err == nil {
+		t.Fatal("expected error for negative timeout")
+	}
+}
+
+func TestClient_OptionOrderIndependence(t *testing.T) {
+	expectedUA := "OrderTest/1.0"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if ua != expectedUA {
+			t.Errorf("expected User-Agent %q, got %q", expectedUA, ua)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	var transportCalled bool
+	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		transportCalled = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+
+	// Order A: Transport first, then UserAgent.
+	clientA, err := httper.New(
+		httper.WithTransport(custom),
+		httper.WithUserAgent(expectedUA),
+	)
+	if err != nil {
+		t.Fatalf("order A: failed to create client: %v", err)
+	}
+
+	req, err := clientA.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientA.Do(req, http.StatusOK); err != nil {
+		t.Errorf("order A: expected no error, got: %v", err)
+	}
+	if !transportCalled {
+		t.Error("order A: custom transport was not called")
+	}
+
+	// Order B: UserAgent first, then Transport.
+	transportCalled = false
+	clientB, err := httper.New(
+		httper.WithUserAgent(expectedUA),
+		httper.WithTransport(custom),
+	)
+	if err != nil {
+		t.Fatalf("order B: failed to create client: %v", err)
+	}
+
+	req, err = clientB.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientB.Do(req, http.StatusOK); err != nil {
+		t.Errorf("order B: expected no error, got: %v", err)
+	}
+	if !transportCalled {
+		t.Error("order B: custom transport was not called")
+	}
+}
+
+func TestClient_FullChainComposition(t *testing.T) {
+	expectedUA := "FullChain/1.0"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if ua != expectedUA {
+			t.Errorf("expected User-Agent %q, got %q", expectedUA, ua)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	var transportCalled bool
+	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		transportCalled = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+
+	// All three options in various orders should produce the same result.
+	orders := [][]httper.ClientOption{
+		{httper.WithTransport(custom), httper.WithUserAgent(expectedUA), httper.WithThrottle(100, 10)},
+		{httper.WithThrottle(100, 10), httper.WithTransport(custom), httper.WithUserAgent(expectedUA)},
+		{httper.WithUserAgent(expectedUA), httper.WithThrottle(100, 10), httper.WithTransport(custom)},
+	}
+
+	for i, opts := range orders {
+		transportCalled = false
+
+		client, err := httper.New(opts...)
+		if err != nil {
+			t.Fatalf("order %d: failed to create client: %v", i, err)
+		}
+
+		req, err := client.Request(t.Context(), testURL, http.MethodGet)
+		if err != nil {
+			t.Fatalf("order %d: failed to create request: %v", i, err)
+		}
+
+		if err := client.Do(req, http.StatusOK); err != nil {
+			t.Errorf("order %d: expected no error, got: %v", i, err)
+		}
+		if !transportCalled {
+			t.Errorf("order %d: custom transport was not called", i)
+		}
+	}
+}
+
+func TestClient_WithClient(t *testing.T) {
+	custom := &http.Client{Timeout: 42 * time.Second}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	client, err := httper.New(httper.WithClient(custom))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := client.Do(req, http.StatusOK); err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+
+	// Verify provided client's timeout is preserved (not overwritten by default).
+	if custom.Timeout != 42*time.Second {
+		t.Errorf("expected provided client timeout preserved as 42s, got %v", custom.Timeout)
+	}
+}
+
+func TestClient_WithClientNil(t *testing.T) {
+	_, err := httper.New(httper.WithClient(nil))
+	if err == nil {
+		t.Fatal("expected error for nil client")
+	}
+}
+
+func TestClient_WithClientAndWithTimeout(t *testing.T) {
+	// WithTimeout must always win over WithClient's timeout, regardless of order.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	// Order A: WithClient first, then WithTimeout.
+	custom := &http.Client{Timeout: 1 * time.Millisecond}
+	clientA, err := httper.New(
+		httper.WithClient(custom),
+		httper.WithTimeout(5*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("order A: failed to create client: %v", err)
+	}
+
+	req, err := clientA.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientA.Do(req, http.StatusOK); err != nil {
+		t.Errorf("order A: expected no error (WithTimeout should win), got: %v", err)
+	}
+
+	// Order B: WithTimeout first, then WithClient.
+	custom = &http.Client{Timeout: 1 * time.Millisecond}
+	clientB, err := httper.New(
+		httper.WithTimeout(5*time.Second),
+		httper.WithClient(custom),
+	)
+	if err != nil {
+		t.Fatalf("order B: failed to create client: %v", err)
+	}
+
+	req, err = clientB.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientB.Do(req, http.StatusOK); err != nil {
+		t.Errorf("order B: expected no error (WithTimeout should win), got: %v", err)
+	}
+}
+
+func TestClient_WithClientCustomTransport(t *testing.T) {
+	// When WithClient provides a transport and WithTransport is not used,
+	// the provided client's transport should be used as the base.
+	var called bool
+	customTransport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+	custom := &http.Client{Transport: customTransport}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	client, err := httper.New(httper.WithClient(custom))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := client.Do(req, http.StatusOK); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if !called {
+		t.Error("provided client's transport was not called")
+	}
+}
+
+func TestClient_WithClientAndWithTransport(t *testing.T) {
+	// WithTransport must always win over the provided client's transport.
+	var providedCalled, explicitCalled bool
+	providedTransport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		providedCalled = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+	explicitTransport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		explicitCalled = true
+		return http.DefaultTransport.RoundTrip(r)
+	})
+	custom := &http.Client{Transport: providedTransport}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	client, err := httper.New(
+		httper.WithClient(custom),
+		httper.WithTransport(explicitTransport),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := client.Do(req, http.StatusOK); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if providedCalled {
+		t.Error("provided client's transport should not have been called")
+	}
+	if !explicitCalled {
+		t.Error("WithTransport's transport should have been called")
+	}
+}
+
+func TestClient_WithNoFollowRedirects(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/target", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL + "/redirect")
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	client, err := httper.New(httper.WithNoFollowRedirects())
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := client.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	// With no-follow, we should get the redirect status, not follow it.
+	if err := client.Do(req, http.StatusFound); err != nil {
+		t.Errorf("expected 302 response without following, got: %v", err)
+	}
+}
+
+func TestClient_WithClientAndWithNoFollowRedirects(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/target", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL + "/redirect")
+	if err != nil {
+		t.Fatalf("failed to parse test server URL: %v", err)
+	}
+
+	// Order A: WithClient first, then WithNoFollowRedirects.
+	clientA, err := httper.New(
+		httper.WithClient(&http.Client{}),
+		httper.WithNoFollowRedirects(),
+	)
+	if err != nil {
+		t.Fatalf("order A: failed to create client: %v", err)
+	}
+
+	req, err := clientA.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientA.Do(req, http.StatusFound); err != nil {
+		t.Errorf("order A: expected 302, got: %v", err)
+	}
+
+	// Order B: WithNoFollowRedirects first, then WithClient.
+	clientB, err := httper.New(
+		httper.WithNoFollowRedirects(),
+		httper.WithClient(&http.Client{}),
+	)
+	if err != nil {
+		t.Fatalf("order B: failed to create client: %v", err)
+	}
+
+	req, err = clientB.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if err := clientB.Do(req, http.StatusFound); err != nil {
+		t.Errorf("order B: expected 302, got: %v", err)
+	}
+}
+
+// roundTripFunc adapts a function into an http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func TestClient_WithThrottleValidation(t *testing.T) {
@@ -248,7 +726,7 @@ func TestClient_Do(t *testing.T) {
 				tc.url = &copied
 			}
 
-			req, err := httper.Request(t.Context(), tc.url, tc.method, reqOpts...)
+			req, err := client.Request(t.Context(), tc.url, tc.method, reqOpts...)
 			if err != nil {
 				t.Fatalf("generating req: %v", err)
 			}

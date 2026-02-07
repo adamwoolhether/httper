@@ -1,29 +1,12 @@
 package throttle
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"golang.org/x/time/rate"
-)
-
-// throttle is an http.RoundTripper, using the time/rate token
-// bucket limiter to restrict outbound calls.
-type throttle struct {
-	limiter *rate.Limiter
-	rps     int
-	burst   int
-	next    http.RoundTripper
-	logFn   func() *slog.Logger
-}
-
-var (
-	ErrMustNotBeZero = errors.New("must be greater than zero")
-	ErrWaitingFailed = errors.New("limiter waiting failed")
-	ErrContextEnded  = errors.New("throttle context ended")
 )
 
 // NewRoundTripper returns an http.RoundTripper that throttles outbound requests

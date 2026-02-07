@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"time"
+
+	"github.com/adamwoolhether/httper/throttle"
 )
 
-// Client enables use of a http client for a given device.
+// Client wraps the std-lib *http.Client
 // It sets a default *http.Client and *http.Transport, which
 // can be customized via optional funcs.
 type Client struct {
@@ -23,34 +23,64 @@ type Client struct {
 	logger *slog.Logger
 }
 
-func New(options ...ClientOption) (*Client, error) {
-	baseTransport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).DialContext,
-		// TLSClientConfig: tlsConf,
-		MaxIdleConns: 5,
-	}
-
+// New instantiates a new *Client with the provided options.
+// If not specified, the default htt.Client and htt.Transport are used.Requ
+func New(opts ...ClientOption) (*Client, error) {
 	client := &Client{
-		c: &http.Client{
-			Transport: baseTransport,
-			Timeout:   10 * time.Second,
-		},
+		c:      http.DefaultClient,
 		logger: slog.Default(),
 	}
 
-	for _, opt := range options {
-		if err := opt(client); err != nil {
+	var options clientOpts
+	for _, opt := range opts {
+		if err := opt(&options); err != nil {
 			return nil, fmt.Errorf("applying client option: %w", err)
 		}
 	}
+
+	if options.client != nil {
+		client.c = options.client
+	}
+
+	if options.logger != nil {
+		client.logger = options.logger
+	}
+
+	if options.timeout != nil {
+		client.c.Timeout = *options.timeout
+	}
+	if options.noFollowRedirects {
+		client.c.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+
+	var transport http.RoundTripper
+	switch {
+	case options.rt != nil:
+		transport = options.rt
+	case options.client != nil && options.client.Transport != nil:
+		transport = options.client.Transport
+	default:
+		transport = http.DefaultTransport
+	}
+	if options.userAgent != "" {
+		transport = userAgent{value: options.userAgent, base: transport}
+	}
+	if options.throttle != nil {
+		rt, err := throttle.NewRoundTripper(options.throttle.RPS, options.throttle.Burst, func() *slog.Logger { return client.logger }, transport)
+		if err != nil {
+			return nil, fmt.Errorf("configuring throttle: %w", err)
+		}
+		transport = rt
+	}
+	client.c.Transport = transport
 
 	return client, nil
 }
 
 // Do will fire the request, and write response to the given dest object if any.
-func (dc *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
+func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 	var settings doOpts
 	for _, opt := range opts {
 		err := opt(&settings)
@@ -59,7 +89,7 @@ func (dc *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 		}
 	}
 
-	resp, err := dc.c.Do(req)
+	resp, err := c.c.Do(req)
 	if err != nil {
 		return fmt.Errorf("exec http do: %w", err)
 	}
@@ -68,16 +98,12 @@ func (dc *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 	defer func() {
 		if settings.responseBody == nil || shouldExhaust {
 			if _, err = io.Copy(io.Discard, resp.Body); err != nil {
-				if dc.logger != nil {
-					dc.logger.Error("failed to discard unused body", "error", err)
-				}
+				c.logger.Error("failed to discard unused body", "error", err)
 			}
 		}
 
 		if err = resp.Body.Close(); err != nil {
-			if dc.logger != nil {
-				dc.logger.Error("failed to close response body", "error", err)
-			}
+			c.logger.Error("failed to close response body", "error", err)
 		}
 	}()
 
@@ -85,19 +111,7 @@ func (dc *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			shouldExhaust = true
-			return &UnexpectedStatusError{
-				StatusCode: resp.StatusCode,
-				Body:       "unable to read body",
-				Err:        ErrUnexpectedStatusCode,
-			}
-		}
-
-		if resp.StatusCode == http.StatusUnauthorized {
-			return &UnexpectedStatusError{
-				StatusCode: resp.StatusCode,
-				Body:       string(b),
-				Err:        fmt.Errorf("%w: %w", ErrAuthenticationFailed, ErrUnexpectedStatusCode),
-			}
+			b = []byte("unable to read body")
 		}
 
 		return &UnexpectedStatusError{
@@ -120,6 +134,18 @@ func (dc *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 	}
 
 	return nil
+}
+
+// Request instantiates an *http.Request with the provided information.
+// It's just a convenience method that wraps the public Request func.
+func (c *Client) Request(ctx context.Context, reqURL *url.URL, method string, opts ...RequestOption) (*http.Request, error) {
+	return Request(ctx, reqURL, method, opts...)
+}
+
+// URL creates a url.URL for use in Request.
+// It's just a convenience method that wraps the public URL func.
+func (c *Client) URL(scheme, host, path string, opts ...URLOption) *url.URL {
+	return URL(scheme, host, path, opts...)
 }
 
 // Request instantiates an *http.Request with the provided information.

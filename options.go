@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/adamwoolhether/httper/throttle"
 )
@@ -14,40 +15,74 @@ import (
 // WithLogger injects a custom logger into the client.
 // WithUserAgent adds a persistent `User-Agent` header to all
 // outgoing requests on the client.
-type ClientOption func(*Client) error
+type ClientOption func(*clientOpts) error
+type clientOpts struct {
+	client            *http.Client
+	rt                http.RoundTripper
+	timeout           *time.Duration
+	userAgent         string
+	throttle          *throttle.Config
+	noFollowRedirects bool
+	logger            *slog.Logger
+}
 
-func WithLogger(logger *slog.Logger) ClientOption {
-	return func(c *Client) error {
-		c.logger = logger
+func WithClient(hc *http.Client) ClientOption {
+	return func(c *clientOpts) error {
+		if hc == nil {
+			return errors.New("client must not be nil")
+		}
+		c.client = hc
+		return nil
+	}
+}
+
+func WithTransport(rt http.RoundTripper) ClientOption {
+	return func(c *clientOpts) error {
+		if rt == nil {
+			return errors.New("transport must not be nil")
+		}
+		c.rt = rt
+		return nil
+	}
+}
+
+func WithTimeout(d time.Duration) ClientOption {
+	return func(c *clientOpts) error {
+		if d < 0 {
+			return errors.New("timeout must not be negative")
+		}
+		c.timeout = &d
 		return nil
 	}
 }
 
 func WithUserAgent(header string) ClientOption {
-	return func(c *Client) error {
-		base := c.c.Transport
-		if base == nil {
-			base = http.DefaultTransport
-		}
-
-		c.c.Transport = userAgent{value: header, base: base}
+	return func(c *clientOpts) error {
+		c.userAgent = header
 		return nil
 	}
 }
 
 func WithThrottle(rps, burst int) ClientOption {
-	return func(c *Client) error {
-		base := c.c.Transport
-		if base == nil {
-			base = http.DefaultTransport
+	return func(c *clientOpts) error {
+		if rps <= 0 || burst <= 0 {
+			return fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, throttle.ErrMustNotBeZero)
 		}
+		c.throttle = &throttle.Config{RPS: rps, Burst: burst}
+		return nil
+	}
+}
 
-		rt, err := throttle.NewRoundTripper(rps, burst, func() *slog.Logger { return c.logger }, base)
-		if err != nil {
-			return fmt.Errorf("configuring throttle: %w", err)
-		}
+func WithNoFollowRedirects() ClientOption {
+	return func(c *clientOpts) error {
+		c.noFollowRedirects = true
+		return nil
+	}
+}
 
-		c.c.Transport = rt
+func WithLogger(logger *slog.Logger) ClientOption {
+	return func(c *clientOpts) error {
+		c.logger = logger
 		return nil
 	}
 }
