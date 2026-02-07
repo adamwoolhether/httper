@@ -1,4 +1,4 @@
-// Package httper exposes a series of helper functions for
+// Package client exposes a series of helper functions for
 // executing http requests against a remote server.
 package client
 

@@ -1,3 +1,4 @@
+// Package throttle allows configuring a http.RounderTripper that enabled throttling on the client.
 package throttle
 
 import (

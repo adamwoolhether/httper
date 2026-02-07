@@ -700,8 +700,6 @@ func TestClient_Do(t *testing.T) {
 		},
 	}
 
-	const dlFileName = "test.json"
-
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			var reqOpts []client.RequestOption

@@ -1,3 +1,4 @@
+// Package httper exposes client builder.
 package httper
 
 import (
