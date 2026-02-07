@@ -291,7 +291,7 @@ func TestClient_FullChainComposition(t *testing.T) {
 	})
 
 	// All three options in various orders should produce the same result.
-	orders := [][]client.ClientOption{
+	orders := [][]client.Option{
 		{client.WithTransport(custom), client.WithUserAgent(expectedUA), client.WithThrottle(100, 10)},
 		{client.WithThrottle(100, 10), client.WithTransport(custom), client.WithUserAgent(expectedUA)},
 		{client.WithUserAgent(expectedUA), client.WithThrottle(100, 10), client.WithTransport(custom)},

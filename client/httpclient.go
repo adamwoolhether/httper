@@ -23,31 +23,31 @@ type Client struct {
 	logger *slog.Logger
 }
 
-func Build(opts ...ClientOption) (*Client, error) {
+func Build(optFns ...Option) (*Client, error) {
 	client := &Client{
 		c:      http.DefaultClient,
 		logger: slog.Default(),
 	}
 
-	var options clientOpts
-	for _, opt := range opts {
-		if err := opt(&options); err != nil {
+	var opts options
+	for _, opt := range optFns {
+		if err := opt(&opts); err != nil {
 			return nil, fmt.Errorf("applying client option: %w", err)
 		}
 	}
 
-	if options.client != nil {
-		client.c = options.client
+	if opts.client != nil {
+		client.c = opts.client
 	}
 
-	if options.logger != nil {
-		client.logger = options.logger
+	if opts.logger != nil {
+		client.logger = opts.logger
 	}
 
-	if options.timeout != nil {
-		client.c.Timeout = *options.timeout
+	if opts.timeout != nil {
+		client.c.Timeout = *opts.timeout
 	}
-	if options.noFollowRedirects {
+	if opts.noFollowRedirects {
 		client.c.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
@@ -55,18 +55,18 @@ func Build(opts ...ClientOption) (*Client, error) {
 
 	var transport http.RoundTripper
 	switch {
-	case options.rt != nil:
-		transport = options.rt
-	case options.client != nil && options.client.Transport != nil:
-		transport = options.client.Transport
+	case opts.rt != nil:
+		transport = opts.rt
+	case opts.client != nil && opts.client.Transport != nil:
+		transport = opts.client.Transport
 	default:
 		transport = http.DefaultTransport
 	}
-	if options.userAgent != "" {
-		transport = userAgent{value: options.userAgent, base: transport}
+	if opts.userAgent != "" {
+		transport = userAgent{value: opts.userAgent, base: transport}
 	}
-	if options.throttle != nil {
-		rt, err := throttle.NewRoundTripper(options.throttle.RPS, options.throttle.Burst, func() *slog.Logger { return client.logger }, transport)
+	if opts.throttle != nil {
+		rt, err := throttle.NewRoundTripper(opts.throttle.RPS, opts.throttle.Burst, func() *slog.Logger { return client.logger }, transport)
 		if err != nil {
 			return nil, fmt.Errorf("configuring throttle: %w", err)
 		}

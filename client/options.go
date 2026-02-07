@@ -10,13 +10,13 @@ import (
 	"github.com/adamwoolhether/httper/client/throttle"
 )
 
-// ClientOption defines optional settings for the http client.
+// Option defines optional settings for the http client.
 //
 // WithLogger injects a custom logger into the client.
 // WithUserAgent adds a persistent `User-Agent` header to all
 // outgoing requests on the client.
-type ClientOption func(*clientOpts) error
-type clientOpts struct {
+type Option func(*options) error
+type options struct {
 	client            *http.Client
 	rt                http.RoundTripper
 	timeout           *time.Duration
@@ -26,8 +26,8 @@ type clientOpts struct {
 	logger            *slog.Logger
 }
 
-func WithClient(hc *http.Client) ClientOption {
-	return func(c *clientOpts) error {
+func WithClient(hc *http.Client) Option {
+	return func(c *options) error {
 		if hc == nil {
 			return errors.New("client must not be nil")
 		}
@@ -36,8 +36,8 @@ func WithClient(hc *http.Client) ClientOption {
 	}
 }
 
-func WithTransport(rt http.RoundTripper) ClientOption {
-	return func(c *clientOpts) error {
+func WithTransport(rt http.RoundTripper) Option {
+	return func(c *options) error {
 		if rt == nil {
 			return errors.New("transport must not be nil")
 		}
@@ -46,8 +46,8 @@ func WithTransport(rt http.RoundTripper) ClientOption {
 	}
 }
 
-func WithTimeout(d time.Duration) ClientOption {
-	return func(c *clientOpts) error {
+func WithTimeout(d time.Duration) Option {
+	return func(c *options) error {
 		if d < 0 {
 			return errors.New("timeout must not be negative")
 		}
@@ -56,15 +56,15 @@ func WithTimeout(d time.Duration) ClientOption {
 	}
 }
 
-func WithUserAgent(header string) ClientOption {
-	return func(c *clientOpts) error {
+func WithUserAgent(header string) Option {
+	return func(c *options) error {
 		c.userAgent = header
 		return nil
 	}
 }
 
-func WithThrottle(rps, burst int) ClientOption {
-	return func(c *clientOpts) error {
+func WithThrottle(rps, burst int) Option {
+	return func(c *options) error {
 		if rps <= 0 || burst <= 0 {
 			return fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, throttle.ErrMustNotBeZero)
 		}
@@ -73,15 +73,15 @@ func WithThrottle(rps, burst int) ClientOption {
 	}
 }
 
-func WithNoFollowRedirects() ClientOption {
-	return func(c *clientOpts) error {
+func WithNoFollowRedirects() Option {
+	return func(c *options) error {
 		c.noFollowRedirects = true
 		return nil
 	}
 }
 
-func WithLogger(logger *slog.Logger) ClientOption {
-	return func(c *clientOpts) error {
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *options) error {
 		c.logger = logger
 		return nil
 	}
