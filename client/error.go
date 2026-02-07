@@ -7,7 +7,6 @@ import (
 
 var (
 	ErrUnexpectedStatusCode = errors.New("unexpected status code")
-	ErrAuthenticationFailed = errors.New("authentication failed")
 )
 
 type UnexpectedStatusError struct {

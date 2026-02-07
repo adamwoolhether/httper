@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 
+	"github.com/adamwoolhether/httper/client/download"
 	"github.com/adamwoolhether/httper/client/throttle"
 )
 
@@ -47,6 +49,7 @@ func Build(optFns ...Option) (*Client, error) {
 	if opts.timeout != nil {
 		client.c.Timeout = *opts.timeout
 	}
+
 	if opts.noFollowRedirects {
 		client.c.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -87,51 +90,42 @@ func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 		}
 	}
 
-	resp, err := c.c.Do(req)
-	if err != nil {
-		return fmt.Errorf("exec http do: %w", err)
-	}
+	doFunc := func(resp *http.Response) error {
+		if settings.responseBody != nil {
+			d := json.NewDecoder(resp.Body)
 
-	var shouldExhaust bool
-	defer func() {
-		if settings.responseBody == nil || shouldExhaust {
-			if _, err = io.Copy(io.Discard, resp.Body); err != nil {
-				c.logger.Error("failed to discard unused body", "error", err)
+			if settings.useJSONNum {
+				d.UseNumber()
+			}
+
+			if err := d.Decode(settings.responseBody); err != nil {
+				return fmt.Errorf("decoding body: %w", err)
 			}
 		}
 
-		if err = resp.Body.Close(); err != nil {
-			c.logger.Error("failed to close response body", "error", err)
-		}
-	}()
-
-	if resp.StatusCode != expCode {
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			shouldExhaust = true
-			b = []byte("unable to read body")
-		}
-
-		return &UnexpectedStatusError{
-			StatusCode: resp.StatusCode,
-			Body:       string(b),
-			Err:        ErrUnexpectedStatusCode,
-		}
+		return nil
 	}
 
-	if settings.responseBody != nil {
-		d := json.NewDecoder(resp.Body)
+	return c.exec(req, expCode, doFunc)
+}
 
-		if settings.useJSONNum {
-			d.UseNumber()
-		}
-
-		if err := d.Decode(settings.responseBody); err != nil {
-			return fmt.Errorf("failed to decode body: %w", err)
-		}
+// Download executes a request that's intended to stream the response body it to destPath.
+// Data streams to a temp file in the same directory, then the temp file is renamed to
+// destPath on success or cleared on failure
+func (c *Client) Download(req *http.Request, expCode int, destPath string, opts ...DownloadOption) error {
+	if destPath == "" {
+		return errors.New("destPath must not be empty")
 	}
 
-	return nil
+	dlFunc := func(resp *http.Response) error {
+		if err := download.Handle(resp.Body, resp.ContentLength, destPath, c.logger, opts...); err != nil {
+			return fmt.Errorf("download: %w", err)
+		}
+
+		return nil
+	}
+
+	return c.exec(req, expCode, dlFunc)
 }
 
 // Request instantiates an *http.Request with the provided information.
@@ -144,6 +138,43 @@ func (c *Client) Request(ctx context.Context, reqURL *url.URL, method string, op
 // It's just a convenience method that wraps the public URL func.
 func (c *Client) URL(scheme, host, path string, opts ...URLOption) *url.URL {
 	return URL(scheme, host, path, opts...)
+}
+
+// exec runs the request and injected function on success after validating the expected status code.
+func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
+	resp, err := c.c.Do(req)
+	if err != nil {
+		return fmt.Errorf("exec http do: %w", err)
+	}
+
+	defer func() {
+		if _, err = io.Copy(io.Discard, resp.Body); err != nil {
+			c.logger.Error("failed to discard unused body", "error", err)
+		}
+
+		if err = resp.Body.Close(); err != nil {
+			c.logger.Error("failed to close response body", "error", err)
+		}
+	}()
+
+	if resp.StatusCode != expCode {
+		b, err := io.ReadAll(io.LimitReader(resp.Body, maxErrBodySize))
+		if err != nil {
+			b = []byte("unable to read body")
+		}
+
+		return &UnexpectedStatusError{
+			StatusCode: resp.StatusCode,
+			Body:       string(b),
+			Err:        ErrUnexpectedStatusCode,
+		}
+	}
+
+	if err := fn(resp); err != nil {
+		return fmt.Errorf("exec fn: %w", err)
+	}
+
+	return nil
 }
 
 // Request instantiates an *http.Request with the provided information.
