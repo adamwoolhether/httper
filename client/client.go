@@ -23,6 +23,8 @@ import (
 type Client struct {
 	c      *http.Client
 	logger *slog.Logger
+
+	// dlQueue atomic.Value // *download.Queue
 }
 
 func Build(optFns ...Option) (*Client, error) {
@@ -118,7 +120,7 @@ func (c *Client) Download(req *http.Request, expCode int, destPath string, opts 
 	}
 
 	dlFunc := func(resp *http.Response) error {
-		if err := download.Handle(resp.Body, resp.ContentLength, destPath, c.logger, opts...); err != nil {
+		if err := download.Handle(req.Context(), resp.Body, resp.ContentLength, destPath, c.logger, opts...); err != nil {
 			return fmt.Errorf("download: %w", err)
 		}
 
@@ -147,11 +149,13 @@ func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
 		return fmt.Errorf("exec http do: %w", err)
 	}
 
+	discardBody := true
 	defer func() {
-		if _, err = io.Copy(io.Discard, resp.Body); err != nil {
-			c.logger.Error("failed to discard unused body", "error", err)
+		if discardBody {
+			if _, err = io.Copy(io.Discard, resp.Body); err != nil {
+				c.logger.Error("failed to discard unused body", "error", err)
+			}
 		}
-
 		if err = resp.Body.Close(); err != nil {
 			c.logger.Error("failed to close response body", "error", err)
 		}
@@ -171,6 +175,7 @@ func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
 	}
 
 	if err := fn(resp); err != nil {
+		discardBody = false
 		return fmt.Errorf("exec fn: %w", err)
 	}
 

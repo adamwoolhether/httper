@@ -3,6 +3,7 @@
 package download
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 
 // Handle streams body to a temp file in the same as destPath and
 // then renamed on success. On any error the temp file is removed.
-func Handle(body io.Reader, contentLength int64, destPath string, logger *slog.Logger, optFns ...Option) error {
+func Handle(ctx context.Context, body io.Reader, contentLength int64, destPath string, logger *slog.Logger, optFns ...Option) error {
 	var opts options
 	for _, opt := range optFns {
 		if err := opt(&opts); err != nil {
@@ -28,6 +29,8 @@ func Handle(body io.Reader, contentLength int64, destPath string, logger *slog.L
 			return nil
 		}
 	}
+
+	body = &contextReader{ctx: ctx, r: body}
 
 	file, err := os.CreateTemp(filepath.Dir(destPath), ".httper-dl-*")
 	if err != nil {
@@ -62,6 +65,10 @@ func Handle(body io.Reader, contentLength int64, destPath string, logger *slog.L
 
 	n, err := io.Copy(writer, body)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return fmt.Errorf("%w: %w", ErrDownloadCancelled, err)
+		}
+
 		return fmt.Errorf("copying file body: %w", err)
 	}
 

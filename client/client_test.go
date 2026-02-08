@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1599,5 +1600,115 @@ func TestClient_Download_SkipExistingNotPresent(t *testing.T) {
 
 	if !bytes.Equal(got, expBody) {
 		t.Errorf("file contents mismatch; got %q, want %q", got, expBody)
+	}
+}
+
+func TestClient_Download_CancelMidDownload(t *testing.T) {
+	// Server writes 1KB chunks with a delay between each to simulate a slow download.
+	const chunkSize = 1024
+	const totalChunks = 20
+	chunk := bytes.Repeat([]byte("a"), chunkSize)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(chunkSize*totalChunks))
+		w.WriteHeader(http.StatusOK)
+
+		for range totalChunks {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "cancelled.bin")
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	req, err := c.Request(ctx, testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.Download(req, http.StatusOK, destPath)
+	}()
+
+	// Let a few chunks arrive, then cancel.
+	time.Sleep(250 * time.Millisecond)
+	cancel()
+
+	err = <-errCh
+	if err == nil {
+		t.Fatal("expected error after cancellation, got nil")
+	}
+
+	if !errors.Is(err, download.ErrDownloadCancelled) {
+		t.Errorf("expected ErrDownloadCancelled, got: %v", err)
+	}
+
+	// Verify no temp files remain.
+	matches, _ := filepath.Glob(filepath.Join(tmpDir, ".httper-dl-*"))
+	if len(matches) > 0 {
+		t.Errorf("expected no temp files, found: %v", matches)
+	}
+
+	// Verify dest file does not exist.
+	if _, statErr := os.Stat(destPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected dest file to not exist at %s after cancellation", destPath)
+	}
+}
+
+func TestClient_Download_AlreadyCancelledContext(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("request should not have been made")
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // Cancel immediately.
+
+	destPath := filepath.Join(t.TempDir(), "should-not-exist.bin")
+
+	req, err := c.Request(ctx, testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	err = c.Download(req, http.StatusOK, destPath)
+	if err == nil {
+		t.Fatal("expected error for already-cancelled context, got nil")
+	}
+
+	// The HTTP client rejects the request before it's sent, so the
+	// error wraps context.Canceled rather than ErrDownloadCancelled.
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
 	}
 }
