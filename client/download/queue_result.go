@@ -33,10 +33,14 @@ func (r *Result) Err() error {
 
 // Wait blocks until all downloads in the group complete.
 // Returns all errors joined.
-func (r *Result) Wait() error { return r.group.Wait() }
+func (r *Result) Wait() error {
+	return r.group.Wait()
+}
 
 // Cancel cancels this download's context.
-func (r *Result) Cancel() { r.cancel() }
+func (r *Result) Cancel() {
+	r.cancel()
+}
 
 func (g *Queue) recordErr(err error) {
 	g.mu.Lock()

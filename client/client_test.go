@@ -20,7 +20,6 @@ import (
 	"github.com/adamwoolhether/httper/client"
 	"github.com/adamwoolhether/httper/client/download"
 	"github.com/adamwoolhether/httper/client/throttle"
-	"github.com/google/go-cmp/cmp"
 )
 
 type test struct {
@@ -745,7 +744,7 @@ func TestClient_Do(t *testing.T) {
 
 			if tc.captureResp != nil && tc.payload != nil {
 				if *tc.captureResp != *tc.payload {
-					t.Errorf("expected identitcal body from echo server; diff %v", cmp.Diff(tc.captureResp, tc.payload))
+					t.Errorf("expected identical body from echo server; exp: %v, got: %v", tc.payload, tc.captureResp)
 				}
 			}
 
