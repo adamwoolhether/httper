@@ -17,7 +17,6 @@ go get github.com/adamwoolhether/httper
 ```
 
 ## Quick Start
-
 ```go
 package main
 
@@ -59,7 +58,7 @@ func main() {
 	fmt.Println(dest)
 }
 ```
-
+See [Client Options](#client-options).
 ## Features
 
 ### JSON Requests
@@ -149,6 +148,62 @@ See [Client Options](#client-options).
 c, err := httper.NewClient(
 	client.WithThrottle(10, 5), // 10 req/s, burst of 5
 )
+```
+
+## Options Reference
+
+### Client Options
+
+Passed to `httper.NewClient(...)`.
+
+```go
+client.WithClient(hc)            // Replace the default http.Client
+client.WithTransport(rt)         // Set a custom http.RoundTripper
+client.WithTimeout(d)            // Set the overall request timeout
+client.WithUserAgent(s)          // Add a persistent User-Agent header
+client.WithThrottle(rps, burst)  // Enable token-bucket rate limiting
+client.WithNoFollowRedirects()   // Prevent following HTTP redirects
+client.WithLogger(l)             // Inject a custom slog.Logger
+```
+
+### Request Options
+
+Passed to `client.Request(...)`.
+
+```go
+client.WithPayload(body)      // Set the JSON-encoded request body
+client.WithContentType(ct)    // Override the default "application/json" Content-Type
+client.WithHeaders(h)         // Add custom headers to the request
+client.WithCookies(c...)      // Attach cookies to the request
+```
+
+### Do Options
+
+Passed to `client.Do(...)`.
+
+```go
+client.WithDestination(&v)  // Decode the response body into v
+client.WithJSONNumb()        // Preserve number precision as json.Number
+```
+
+### URL Options
+
+Passed to `client.URL(...)`.
+
+```go
+client.WithQueryStrings(kv)  // Append query parameters
+client.WithPort(p)           // Set the port number on the host
+```
+
+### Download Options
+
+Passed to `client.Download(...)` / `client.DownloadAsync(...)`.
+
+```go
+download.WithBatch(n)              // Enable batch mode with bounded concurrency
+download.WithChecksum(h, expected) // Verify file checksum after download
+download.WithProgress()            // Enable periodic progress logging
+download.WithSkipExisting()        // Skip download if the file already exists
 ```
 
 ## Thanks
