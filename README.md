@@ -152,5 +152,5 @@ c, err := httper.NewClient(
 ```
 
 ## Thanks
-This grew over the years, originally based on knowledge obtains from Powerful [Command-Line Applications in Go](https://pragprog.com/titles/rggo/powerful-command-line-applications-in-go/) by [Ricardo Gerardi](https://github.com/rgerardi)  
+This grew over the years, originally based on knowledge obtained from Powerful [Command-Line Applications in Go](https://pragprog.com/titles/rggo/powerful-command-line-applications-in-go/) by [Ricardo Gerardi](https://github.com/rgerardi)  
 And of course a shoutout to [Ardan Labs](https://github.com/ardanlabs), who has inspired many decisions here.
