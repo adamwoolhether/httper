@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/adamwoolhether/httper/client"
+	"github.com/adamwoolhether/httper/client/download"
 )
 
 func ExampleBuild() {
@@ -127,7 +128,7 @@ func ExampleClient_Download() {
 	dest := filepath.Join(os.TempDir(), "httper-example-dl.bin")
 	defer os.Remove(dest)
 
-	if err := c.Download(req, http.StatusOK, dest, client.WithProgress()); err != nil {
+	if err := c.Download(req, http.StatusOK, dest, download.WithProgress()); err != nil {
 		fmt.Println("error:", err)
 		return
 	}
@@ -191,7 +192,7 @@ func ExampleClient_DownloadAsync_batch() {
 	reqA, _ := client.Request(context.Background(), uA, http.MethodGet)
 
 	// Start the first download with a batch concurrency limit of 2.
-	r, err := c.DownloadAsync(reqA, http.StatusOK, destA, client.WithBatch(2))
+	r, err := c.DownloadAsync(reqA, http.StatusOK, destA, download.WithBatch(2))
 	if err != nil {
 		fmt.Println("error:", err)
 		return
@@ -521,7 +522,7 @@ func ExampleWithChecksum() {
 	defer os.Remove(dest)
 
 	err := c.Download(req, http.StatusOK, dest,
-		client.WithChecksum(sha256.New(), expectedHex),
+		download.WithChecksum(sha256.New(), expectedHex),
 	)
 	if err != nil {
 		fmt.Println("error:", err)
@@ -550,7 +551,7 @@ func ExampleWithProgress() {
 	defer os.Remove(dest)
 
 	// Progress logs are emitted via the client's logger.
-	err := c.Download(req, http.StatusOK, dest, client.WithProgress())
+	err := c.Download(req, http.StatusOK, dest, download.WithProgress())
 	if err != nil {
 		fmt.Println("error:", err)
 		return
@@ -582,7 +583,7 @@ func ExampleWithSkipExisting() {
 
 	// Second download with WithSkipExisting skips because the file exists.
 	req2, _ := client.Request(context.Background(), u, http.MethodGet)
-	err := c.Download(req2, http.StatusOK, dest, client.WithSkipExisting())
+	err := c.Download(req2, http.StatusOK, dest, download.WithSkipExisting())
 
 	fmt.Println("error:", err)
 	data, _ := os.ReadFile(dest)
@@ -611,7 +612,7 @@ func ExampleWithBatch() {
 	req, _ := client.Request(context.Background(), u, http.MethodGet)
 
 	// WithBatch(4) creates a queue allowing 4 concurrent downloads.
-	r, err := c.DownloadAsync(req, http.StatusOK, dest, client.WithBatch(4))
+	r, err := c.DownloadAsync(req, http.StatusOK, dest, download.WithBatch(4))
 	if err != nil {
 		fmt.Println("error:", err)
 		return

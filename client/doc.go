@@ -24,8 +24,8 @@
 // verification and progress reporting:
 //
 //	err = c.Download(req, http.StatusOK, "/tmp/file.bin",
-//		client.WithChecksum(sha256.New(), expectedHex),
-//		client.WithProgress(),
+//		download.WithChecksum(sha256.New(), expectedHex),
+//		download.WithProgress(),
 //	)
 //
 // # Async Downloads
@@ -40,7 +40,7 @@
 // limit and [download.Result.Add] to enqueue additional files:
 //
 //	r, err := c.DownloadAsync(req1, http.StatusOK, "/tmp/a.bin",
-//		client.WithBatch(4),
+//		download.WithBatch(4),
 //	)
 //	r.Add(req2, http.StatusOK, "/tmp/b.bin")
 //	r.Add(req3, http.StatusOK, "/tmp/c.bin")

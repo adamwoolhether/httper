@@ -95,15 +95,19 @@ Stream a file to disk with optional checksum verification and progress logging.
 See [Download Options](#download-options).
 
 ```go
-import "crypto/sha256"
+import (
+	"crypto/sha256"
+
+	"github.com/adamwoolhether/httper/client/download"
+)
 
 u := client.URL("https", "example.com", "/archive.tar.gz")
 req, _ := client.Request(ctx, u, http.MethodGet)
 
 err := c.Download(req, http.StatusOK, "/tmp/archive.tar.gz",
-	client.WithChecksum(sha256.New(), "e3b0c44298fc1c14..."),
-	client.WithProgress(),
-	client.WithSkipExisting(),
+	download.WithChecksum(sha256.New(), "e3b0c44298fc1c14..."),
+	download.WithProgress(),
+	download.WithSkipExisting(),
 )
 ```
 
@@ -113,11 +117,13 @@ Download multiple files concurrently with a bounded worker pool.
 See [Download Options](#download-options).
 
 ```go
+import "github.com/adamwoolhether/httper/client/download"
+
 u1 := client.URL("https", "example.com", "/file1.zip")
 req1, _ := client.Request(ctx, u1, http.MethodGet)
 
 result, err := c.DownloadAsync(req1, http.StatusOK, "/tmp/file1.zip",
-	client.WithBatch(4), // max 4 concurrent downloads
+	download.WithBatch(4), // max 4 concurrent downloads
 )
 if err != nil {
 	return err

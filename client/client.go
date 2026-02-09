@@ -112,7 +112,7 @@ func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 // Data streams to a temp file in the same directory, then the temp file is renamed to
 // destPath on success or cleared on failure. Cancellation of an in-progress download can
 // be done with a custom context injected into the *http.Request.
-func (c *Client) Download(req *http.Request, expCode int, destPath string, optFns ...DownloadOption) error {
+func (c *Client) Download(req *http.Request, expCode int, destPath string, optFns ...download.Option) error {
 	if destPath == "" {
 		return errors.New("destPath must not be empty")
 	}
@@ -139,7 +139,7 @@ func (c *Client) Download(req *http.Request, expCode int, destPath string, optFn
 // If no WithBatch option is provided, an implicit unlimited queue is created.
 // The returned AsyncResult can be used to track or cancel this individual download,
 // wait on the entire group, or add more downloads to the same batch via Download.
-func (c *Client) DownloadAsync(req *http.Request, expCode int, destPath string, optFns ...DownloadOption) (*download.Result, error) {
+func (c *Client) DownloadAsync(req *http.Request, expCode int, destPath string, optFns ...download.Option) (*download.Result, error) {
 	if destPath == "" {
 		return nil, errors.New("destPath must not be empty")
 	}

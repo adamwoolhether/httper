@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adamwoolhether/httper/client/download"
 	"github.com/adamwoolhether/httper/client/throttle"
 )
 
@@ -202,6 +201,3 @@ func WithPort(port int) URLOption {
 		opts.port = &port
 	}
 }
-
-// DownloadOption defines optional settings for downloading files.
-type DownloadOption = download.Option
