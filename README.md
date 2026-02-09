@@ -5,6 +5,11 @@
 
 A *simple* Go HTTP client wrapper with functional options, streaming file downloads, async batch downloads, and token-bucket rate limiting.  
 
+This is how I've been constructing http clients for a while now, or some variation thereof. Finallly decided to make it into a reusable, shared repo.  
+
+More often than not, http clients are highly use-case specific, I could never find myself to like other highly engineered clients.  
+This is meant to be lightweight, a mere wrapper around the standard client.
+
 ## Install
 
 ```sh
@@ -28,9 +33,13 @@ import (
 )
 
 func main() {
+	// defaults to http defaults out of the box — optionally supply your own
+	// http.Client or http.RoundTripper for full control.
 	c, err := httper.NewClient(
 		client.WithTimeout(10 * time.Second),
 		client.WithUserAgent("my-app/1.0"),
+		// client.WithClient(customHTTPClient),
+		// client.WithTransport(customRoundTripper),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -135,3 +144,7 @@ c, err := httper.NewClient(
 	client.WithThrottle(10, 5), // 10 req/s, burst of 5
 )
 ```
+
+## Thanks
+This grew over the years, originally based on knowledge obtains from Powerful [Command-Line Applications in Go](https://pragprog.com/titles/rggo/powerful-command-line-applications-in-go/) by @rgerardi
+And of course a shoutout to @ardanlabs, who has inspired many decisions here.
