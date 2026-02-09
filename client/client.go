@@ -23,8 +23,6 @@ import (
 type Client struct {
 	c      *http.Client
 	logger *slog.Logger
-
-	// dlQueue atomic.Value // *download.Queue
 }
 
 func Build(optFns ...Option) (*Client, error) {
@@ -36,7 +34,7 @@ func Build(optFns ...Option) (*Client, error) {
 	var opts options
 	for _, opt := range optFns {
 		if err := opt(&opts); err != nil {
-			return nil, fmt.Errorf("applying client option: %w", err)
+			return nil, fmt.Errorf("applying option: %w", err)
 		}
 	}
 
@@ -88,7 +86,7 @@ func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 	for _, opt := range opts {
 		err := opt(&settings)
 		if err != nil {
-			return err
+			return fmt.Errorf("applying option: %w", err)
 		}
 	}
 
@@ -113,14 +111,22 @@ func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 
 // Download executes a request that's intended to stream the response body it to destPath.
 // Data streams to a temp file in the same directory, then the temp file is renamed to
-// destPath on success or cleared on failure
-func (c *Client) Download(req *http.Request, expCode int, destPath string, opts ...DownloadOption) error {
+// destPath on success or cleared on failure. Cancellation of an in-progress download can
+// be done with a custom context injected into the *http.Request.
+func (c *Client) Download(req *http.Request, expCode int, destPath string, optFns ...DownloadOption) error {
 	if destPath == "" {
 		return errors.New("destPath must not be empty")
 	}
 
+	var opts download.Options
+	for _, opt := range optFns {
+		if err := opt(&opts); err != nil {
+			return fmt.Errorf("applying option: %w", err)
+		}
+	}
+
 	dlFunc := func(resp *http.Response) error {
-		if err := download.Handle(req.Context(), resp.Body, resp.ContentLength, destPath, c.logger, opts...); err != nil {
+		if err := download.Handle(req.Context(), resp.Body, resp.ContentLength, destPath, c.logger, opts); err != nil {
 			return fmt.Errorf("download: %w", err)
 		}
 
@@ -128,6 +134,42 @@ func (c *Client) Download(req *http.Request, expCode int, destPath string, opts 
 	}
 
 	return c.exec(req, expCode, dlFunc)
+}
+
+// DownloadAsync starts an asynchronous download managed by a Queue.
+// If no WithBatch option is provided, an implicit unlimited queue is created.
+// The returned AsyncResult can be used to track or cancel this individual download,
+// wait on the entire group, or add more downloads to the same batch via Download.
+func (c *Client) DownloadAsync(req *http.Request, expCode int, destPath string, optFns ...DownloadOption) (*download.Result, error) {
+	if destPath == "" {
+		return nil, errors.New("destPath must not be empty")
+	}
+
+	var opts download.Options
+	for _, opt := range optFns {
+		if err := opt(&opts); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	queue := opts.Group
+	if queue == nil { // A single async DL.
+		queue = download.NewQueue(0)
+	}
+
+	fn := func(ctx context.Context) error {
+		req = req.WithContext(ctx)
+
+		dlFunc := func(resp *http.Response) error {
+			return download.Handle(ctx, resp.Body, resp.ContentLength, destPath, c.logger, opts)
+		}
+
+		return c.exec(req, expCode, dlFunc)
+	}
+
+	r := queue.Start(req.Context(), fn, c.DownloadAsync)
+
+	return r, nil
 }
 
 // Request instantiates an *http.Request with the provided information.

@@ -15,16 +15,36 @@ import (
 //
 // WithSkipExisting causes Handle to return nil immediately when
 // the destination file already exists, avoiding a redundant download.
-type Option func(*options) error
+type Option func(*Options) error
 
-type options struct {
+type Options struct {
 	checksum     *checksumVerifier
 	progress     bool
 	skipExisting bool
+	Group        *Queue
+}
+
+// WithBatch activates batch mode by creating a Queue with the given
+// concurrency limit. If maxConcurrent <= 0, concurrency is unlimited.
+func WithBatch(maxConcurrent int) Option {
+	return func(opts *Options) error {
+		if opts.Group != nil {
+			return errors.New("WithBatch cannot be used with Result.Add")
+		}
+		opts.Group = NewQueue(maxConcurrent)
+		return nil
+	}
+}
+
+func withBatch(queue *Queue) Option {
+	return func(opts *Options) error {
+		opts.Group = queue
+		return nil
+	}
 }
 
 func WithChecksum(h hash.Hash, expected string) Option {
-	return func(opts *options) error {
+	return func(opts *Options) error {
 		if h == nil {
 			return errors.New("hash must not be nil")
 		}
@@ -39,14 +59,14 @@ func WithChecksum(h hash.Hash, expected string) Option {
 }
 
 func WithProgress() Option {
-	return func(opts *options) error {
+	return func(opts *Options) error {
 		opts.progress = true
 		return nil
 	}
 }
 
 func WithSkipExisting() Option {
-	return func(opts *options) error {
+	return func(opts *Options) error {
 		opts.skipExisting = true
 		return nil
 	}

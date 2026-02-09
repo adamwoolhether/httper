@@ -11,6 +11,7 @@ var (
 	ErrContentLengthMismatch = errors.New("content length mismatch")
 	ErrChecksumMismatch      = errors.New("checksum mismatch")
 	ErrDownloadCancelled     = errors.New("download cancelled")
+	ErrGroupShutdown         = errors.New("group is shut down")
 )
 
 type Error struct {

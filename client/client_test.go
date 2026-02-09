@@ -1712,3 +1712,305 @@ func TestClient_Download_AlreadyCancelledContext(t *testing.T) {
 		t.Errorf("expected context.Canceled, got: %v", err)
 	}
 }
+
+// /////////////////////////////////////////////////////////////////
+// DownloadAsync Tests
+
+func TestClient_DownloadAsync_Single(t *testing.T) {
+	expBody := []byte("async download body")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(expBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(expBody)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	destPath := filepath.Join(t.TempDir(), "async-single.bin")
+
+	req, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	r, err := c.DownloadAsync(req, http.StatusOK, destPath)
+	if err != nil {
+		t.Fatalf("starting async download: %v", err)
+	}
+
+	if err := r.Wait(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("reading downloaded file: %v", err)
+	}
+
+	if !bytes.Equal(got, expBody) {
+		t.Errorf("file contents mismatch; got %q, want %q", got, expBody)
+	}
+}
+
+func TestClient_DownloadAsync_Batch(t *testing.T) {
+	const numFiles = 5
+	expBody := []byte("batch download content")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(expBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(expBody)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// First download starts the batch.
+	req0, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request 0: %v", err)
+	}
+	r, err := c.DownloadAsync(req0, http.StatusOK, filepath.Join(tmpDir, "batch-0.bin"), download.WithBatch(2))
+	if err != nil {
+		t.Fatalf("starting async download 0: %v", err)
+	}
+
+	// Subsequent downloads added via r.Download.
+	for i := 1; i < numFiles; i++ {
+		destPath := filepath.Join(tmpDir, fmt.Sprintf("batch-%d.bin", i))
+
+		req, err := c.Request(t.Context(), testURL, http.MethodGet)
+		if err != nil {
+			t.Fatalf("creating request %d: %v", i, err)
+		}
+
+		if _, err := r.Add(req, http.StatusOK, destPath); err != nil {
+			t.Fatalf("starting async download %d: %v", i, err)
+		}
+	}
+
+	if err := r.Wait(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	for i := range numFiles {
+		destPath := filepath.Join(tmpDir, fmt.Sprintf("batch-%d.bin", i))
+		got, err := os.ReadFile(destPath)
+		if err != nil {
+			t.Fatalf("reading file %d: %v", i, err)
+		}
+		if !bytes.Equal(got, expBody) {
+			t.Errorf("file %d contents mismatch; got %q, want %q", i, got, expBody)
+		}
+	}
+}
+
+func TestClient_DownloadAsync_CancelOneInBatch(t *testing.T) {
+	const chunkSize = 1024
+	const totalChunks = 20
+	chunk := bytes.Repeat([]byte("b"), chunkSize)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(chunkSize*totalChunks))
+		w.WriteHeader(http.StatusOK)
+		for range totalChunks {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Start the first slow download (creates the batch).
+	req1, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request 1: %v", err)
+	}
+	r1, err := c.DownloadAsync(req1, http.StatusOK, filepath.Join(tmpDir, "cancel-me.bin"), download.WithBatch(4))
+	if err != nil {
+		t.Fatalf("starting async download 1: %v", err)
+	}
+
+	// Add a second slow download that should complete.
+	req2, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request 2: %v", err)
+	}
+	r2, err := r1.Add(req2, http.StatusOK, filepath.Join(tmpDir, "keep-me.bin"))
+	if err != nil {
+		t.Fatalf("starting async download 2: %v", err)
+	}
+	_ = r2
+
+	// Let downloads start, then cancel r1.
+	time.Sleep(100 * time.Millisecond)
+	r1.Cancel()
+
+	err = r1.Wait()
+	if err == nil {
+		t.Fatal("expected error from cancelled download, got nil")
+	}
+
+	// The cancelled download should have produced an error.
+	r1Err := r1.Err()
+	if r1Err == nil {
+		t.Error("expected r1 to have an error after cancel")
+	}
+}
+
+func TestClient_DownloadAsync_EmptyDestPath(t *testing.T) {
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("request should not have been made")
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	req, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	if _, err := c.DownloadAsync(req, http.StatusOK, ""); err == nil {
+		t.Error("expected error for empty destPath, got nil")
+	}
+}
+
+func TestClient_DownloadAsync_WithChecksum(t *testing.T) {
+	expBody := []byte("async checksum data")
+	hash := sha256.Sum256(expBody)
+	expChecksum := hex.EncodeToString(hash[:])
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(expBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(expBody)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	destPath := filepath.Join(t.TempDir(), "async-checksum.bin")
+
+	req, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	r, err := c.DownloadAsync(req, http.StatusOK, destPath, download.WithBatch(2), download.WithChecksum(sha256.New(), expChecksum))
+	if err != nil {
+		t.Fatalf("starting async download: %v", err)
+	}
+
+	if err := r.Wait(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("reading downloaded file: %v", err)
+	}
+
+	if !bytes.Equal(got, expBody) {
+		t.Errorf("file contents mismatch; got %q, want %q", got, expBody)
+	}
+}
+
+func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
+	expBody := []byte("reject batch on add")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(expBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(expBody)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	req0, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request 0: %v", err)
+	}
+
+	r, err := c.DownloadAsync(req0, http.StatusOK, filepath.Join(tmpDir, "first.bin"), download.WithBatch(2))
+	if err != nil {
+		t.Fatalf("starting async download: %v", err)
+	}
+
+	req1, err := c.Request(t.Context(), testURL, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request 1: %v", err)
+	}
+
+	_, err = r.Add(req1, http.StatusOK, filepath.Join(tmpDir, "second.bin"), download.WithBatch(2))
+	if err == nil {
+		t.Fatal("expected error when passing WithBatch to Result.Add, got nil")
+	}
+
+	if err := r.Wait(); err != nil {
+		t.Fatalf("expected no error from wait, got: %v", err)
+	}
+}

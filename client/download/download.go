@@ -15,14 +15,7 @@ import (
 
 // Handle streams body to a temp file in the same as destPath and
 // then renamed on success. On any error the temp file is removed.
-func Handle(ctx context.Context, body io.Reader, contentLength int64, destPath string, logger *slog.Logger, optFns ...Option) error {
-	var opts options
-	for _, opt := range optFns {
-		if err := opt(&opts); err != nil {
-			return fmt.Errorf("applying option: %w", err)
-		}
-	}
-
+func Handle(ctx context.Context, body io.Reader, contentLength int64, destPath string, logger *slog.Logger, opts Options) error {
 	if opts.skipExisting {
 		if _, err := os.Stat(destPath); err == nil {
 			logger.Info("skipping existing file", "path", destPath)
