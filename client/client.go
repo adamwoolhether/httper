@@ -1,5 +1,3 @@
-// Package client exposes a series of helper functions for
-// executing http requests against a remote server.
 package client
 
 import (
@@ -25,6 +23,7 @@ type Client struct {
 	logger *slog.Logger
 }
 
+// Build constructs a new [Client] by applying the given options.
 func Build(optFns ...Option) (*Client, error) {
 	client := &Client{
 		c:      http.DefaultClient,
@@ -152,10 +151,12 @@ func (c *Client) DownloadAsync(req *http.Request, expCode int, destPath string, 
 		}
 	}
 
-	queue := opts.Group
-	if queue == nil { // A single async DL.
-		queue = download.NewQueue(0)
+	if opts.Group == nil {
+		if err := download.WithBatch(0)(&opts); err != nil {
+			return nil, fmt.Errorf("applying default batch: %w", err)
+		}
 	}
+	queue := opts.Group
 
 	fn := func(ctx context.Context) error {
 		req = req.WithContext(ctx)

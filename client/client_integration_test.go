@@ -265,9 +265,7 @@ func TestIntegration_DownloadAsync_RemoteBatch(t *testing.T) {
 			t.Fatalf("creating request %d: %v", i, err)
 		}
 
-		if _, err := r.Add(req, http.StatusOK, filepath.Join(tmpDir, fmt.Sprintf("batch-%d", i))); err != nil {
-			t.Fatalf("adding download %d: %v", i, err)
-		}
+		r.Add(req, http.StatusOK, filepath.Join(tmpDir, fmt.Sprintf("batch-%d", i)))
 	}
 
 	if err := r.Wait(); err != nil {

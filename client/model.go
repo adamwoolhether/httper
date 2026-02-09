@@ -15,10 +15,11 @@ const maxErrBodySize = 4 << 10 // 4KB
 // execFn represents a func to operate on a response.
 type execFn func(response *http.Response) error
 
-var (
-	ErrUnexpectedStatusCode = errors.New("unexpected status code")
-)
+// ErrUnexpectedStatusCode is the sentinel error wrapped by [UnexpectedStatusError].
+var ErrUnexpectedStatusCode = errors.New("unexpected status code")
 
+// UnexpectedStatusError is returned when the HTTP response status code
+// does not match the expected value.
 type UnexpectedStatusError struct {
 	StatusCode int
 	Body       string

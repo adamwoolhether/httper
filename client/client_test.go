@@ -1803,9 +1803,7 @@ func TestClient_DownloadAsync_Batch(t *testing.T) {
 			t.Fatalf("creating request %d: %v", i, err)
 		}
 
-		if _, err := r.Add(req, http.StatusOK, destPath); err != nil {
-			t.Fatalf("starting async download %d: %v", i, err)
-		}
+		r.Add(req, http.StatusOK, destPath)
 	}
 
 	if err := r.Wait(); err != nil {
@@ -1871,11 +1869,7 @@ func TestClient_DownloadAsync_CancelOneInBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating request 2: %v", err)
 	}
-	r2, err := r1.Add(req2, http.StatusOK, filepath.Join(tmpDir, "keep-me.bin"))
-	if err != nil {
-		t.Fatalf("starting async download 2: %v", err)
-	}
-	_ = r2
+	_ = r1.Add(req2, http.StatusOK, filepath.Join(tmpDir, "keep-me.bin"))
 
 	// Let downloads start, then cancel r1.
 	time.Sleep(100 * time.Millisecond)
@@ -2004,12 +1998,9 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 		t.Fatalf("creating request 1: %v", err)
 	}
 
-	_, err = r.Add(req1, http.StatusOK, filepath.Join(tmpDir, "second.bin"), download.WithBatch(2))
-	if err == nil {
-		t.Fatal("expected error when passing WithBatch to Result.Add, got nil")
-	}
+	r.Add(req1, http.StatusOK, filepath.Join(tmpDir, "second.bin"), download.WithBatch(2))
 
-	if err := r.Wait(); err != nil {
-		t.Fatalf("expected no error from wait, got: %v", err)
+	if err := r.Wait(); err == nil {
+		t.Fatal("expected error from Wait when WithBatch passed to Result.Add, got nil")
 	}
 }

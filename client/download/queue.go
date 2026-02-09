@@ -8,11 +8,11 @@ import (
 	"sync/atomic"
 )
 
-// WorkFunc is the signature for async work.
+// WorkFunc is the signature for a unit of asynchronous work managed by a [Queue].
 type WorkFunc func(ctx context.Context) error
 
-// Adder matches the client.DownloadAsync func signature.
-// Allows us to inject into the result.
+// Adder is a callback matching the [Client.DownloadAsync] signature,
+// injected into [Result] so that [Result.Add] can enqueue more downloads.
 type Adder func(*http.Request, int, string, ...Option) (*Result, error)
 
 // Queue manages a batch of concurrent async downloads.
@@ -24,10 +24,9 @@ type Queue struct {
 	errs     []error
 }
 
-// NewQueue creates a Queue with the given concurrency limit and
-// returns both the Queue (for Wait/Shutdown) and an Option (for DownloadAsync).
+// newQueue creates a Queue with the given concurrency limit.
 // If maxConcurrent <= 0, concurrency is unlimited.
-func NewQueue(maxConcurrent int) *Queue {
+func newQueue(maxConcurrent int) *Queue {
 	q := &Queue{}
 	if maxConcurrent > 0 {
 		q.sem = make(chan struct{}, maxConcurrent)

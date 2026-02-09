@@ -36,12 +36,27 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 
 func (pw *progressWriter) log(msg string) {
 	elapsed := time.Since(pw.startTime)
+
+	var progress string
+	if pw.total > 0 {
+		progress = fmt.Sprintf("%.1f%%", float64(pw.transferred)/float64(pw.total)*100)
+	} else {
+		progress = "unknown"
+	}
+
+	var mbps string
+	if s := elapsed.Seconds(); s > 0 {
+		mbps = fmt.Sprintf("%.2f", float64(pw.transferred)/s/(1024*1024))
+	} else {
+		mbps = "0.00"
+	}
+
 	attrs := []any{
-		"progress", fmt.Sprintf("%.1f%%", float64(pw.transferred)/float64(pw.total)*100),
+		"progress", progress,
 		"elapsed", elapsed.Round(time.Millisecond),
 		"transferred", pw.transferred,
 		"total", pw.total,
-		"mbps", fmt.Sprintf("%.2f", float64(pw.transferred)/elapsed.Seconds()/(1024*1024)),
+		"mbps", mbps,
 	}
 	pw.logger.Info(msg, attrs...)
 }

@@ -1,4 +1,4 @@
-package download_test
+package download
 
 import (
 	"context"
@@ -6,13 +6,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/adamwoolhether/httper/client/download"
 )
 
 func TestResult_Err(t *testing.T) {
 	wantErr := errors.New("boom")
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	r := g.Start(t.Context(), func(ctx context.Context) error {
 		return wantErr
@@ -24,7 +22,7 @@ func TestResult_Err(t *testing.T) {
 }
 
 func TestResult_Err_Success(t *testing.T) {
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	r := g.Start(t.Context(), func(ctx context.Context) error {
 		return nil
@@ -37,7 +35,7 @@ func TestResult_Err_Success(t *testing.T) {
 
 func TestResult_Wait_SingleError(t *testing.T) {
 	wantErr := errors.New("single fail")
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	r := g.Start(t.Context(), func(ctx context.Context) error {
 		return wantErr
@@ -49,7 +47,7 @@ func TestResult_Wait_SingleError(t *testing.T) {
 }
 
 func TestResult_Wait_Success(t *testing.T) {
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	r := g.Start(t.Context(), func(ctx context.Context) error {
 		return nil
@@ -61,7 +59,7 @@ func TestResult_Wait_Success(t *testing.T) {
 }
 
 func TestResult_Done(t *testing.T) {
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	r := g.Start(t.Context(), func(ctx context.Context) error {
 		return nil
@@ -77,7 +75,7 @@ func TestResult_Done(t *testing.T) {
 func TestGroup_Wait_JoinedErrors(t *testing.T) {
 	err1 := errors.New("error one")
 	err2 := errors.New("error two")
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	g.Start(t.Context(), func(ctx context.Context) error { return err1 }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return err2 }, nil)
@@ -96,7 +94,7 @@ func TestGroup_Wait_JoinedErrors(t *testing.T) {
 
 func TestGroup_Wait_MixedSuccessAndError(t *testing.T) {
 	wantErr := errors.New("only failure")
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return wantErr }, nil)
@@ -112,7 +110,7 @@ func TestGroup_ConcurrencyLimit(t *testing.T) {
 	const limit = 2
 	const total = 5
 
-	g := download.NewQueue(limit)
+	g := newQueue(limit)
 
 	var running atomic.Int32
 	var maxRunning atomic.Int32
@@ -149,7 +147,7 @@ func TestGroup_ConcurrencyLimit(t *testing.T) {
 func TestGroup_UnlimitedConcurrency(t *testing.T) {
 	const total = 10
 
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	var running atomic.Int32
 	var maxRunning atomic.Int32
@@ -183,7 +181,7 @@ func TestGroup_UnlimitedConcurrency(t *testing.T) {
 }
 
 func TestResult_Cancel(t *testing.T) {
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	started := make(chan struct{})
 
@@ -206,7 +204,7 @@ func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
 	// Queue with limit 1, start a long-running task to fill the slot,
 	// then start a second with a cancelled context. It should fail with
 	// context.Canceled without blocking forever.
-	g := download.NewQueue(1)
+	g := newQueue(1)
 
 	release := make(chan struct{})
 	g.Start(t.Context(), func(ctx context.Context) error {
@@ -238,7 +236,7 @@ func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
 }
 
 func TestGroup_Shutdown(t *testing.T) {
-	g := download.NewQueue(1)
+	g := newQueue(1)
 
 	// Fill the semaphore slot with a task that blocks on a channel.
 	release := make(chan struct{})
@@ -261,13 +259,13 @@ func TestGroup_Shutdown(t *testing.T) {
 	}, nil)
 
 	err := r.Err()
-	if !errors.Is(err, download.ErrGroupShutdown) {
+	if !errors.Is(err, ErrGroupShutdown) {
 		t.Errorf("expected ErrGroupShutdown, got %v", err)
 	}
 }
 
 func TestGroup_Wait_NilWhenAllSucceed(t *testing.T) {
-	g := download.NewQueue(0)
+	g := newQueue(0)
 
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)

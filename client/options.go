@@ -11,11 +11,7 @@ import (
 	"github.com/adamwoolhether/httper/client/throttle"
 )
 
-// Option defines optional settings for the http client.
-//
-// WithLogger injects a custom logger into the client.
-// WithUserAgent adds a persistent `User-Agent` header to all
-// outgoing requests on the client.
+// Option is a functional option for configuring a [Client] via [Build].
 type Option func(*options) error
 type options struct {
 	client            *http.Client
@@ -27,6 +23,7 @@ type options struct {
 	logger            *slog.Logger
 }
 
+// WithClient replaces the default [http.Client] used by the [Client].
 func WithClient(hc *http.Client) Option {
 	return func(c *options) error {
 		if hc == nil {
@@ -37,6 +34,7 @@ func WithClient(hc *http.Client) Option {
 	}
 }
 
+// WithTransport sets a custom [http.RoundTripper] as the base transport.
 func WithTransport(rt http.RoundTripper) Option {
 	return func(c *options) error {
 		if rt == nil {
@@ -47,6 +45,7 @@ func WithTransport(rt http.RoundTripper) Option {
 	}
 }
 
+// WithTimeout sets the overall request timeout on the underlying [http.Client].
 func WithTimeout(d time.Duration) Option {
 	return func(c *options) error {
 		if d < 0 {
@@ -57,6 +56,7 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithUserAgent adds a persistent User-Agent header to all outgoing requests.
 func WithUserAgent(header string) Option {
 	return func(c *options) error {
 		c.userAgent = header
@@ -64,6 +64,7 @@ func WithUserAgent(header string) Option {
 	}
 }
 
+// WithThrottle enables token-bucket rate limiting with the given requests per second and burst capacity.
 func WithThrottle(rps, burst int) Option {
 	return func(c *options) error {
 		if rps <= 0 || burst <= 0 {
@@ -74,6 +75,7 @@ func WithThrottle(rps, burst int) Option {
 	}
 }
 
+// WithNoFollowRedirects prevents the [Client] from following HTTP redirects.
 func WithNoFollowRedirects() Option {
 	return func(c *options) error {
 		c.noFollowRedirects = true
@@ -81,6 +83,7 @@ func WithNoFollowRedirects() Option {
 	}
 }
 
+// WithLogger injects a custom [slog.Logger] into the [Client].
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *options) error {
 		c.logger = logger
@@ -100,13 +103,7 @@ func (ua userAgent) RoundTrip(r *http.Request) (*http.Response, error) {
 	return ua.base.RoundTrip(cpy)
 }
 
-// /////////////////////////////////////////////////////////////////
-
-// DoOption defines optional settings for *Client.Do.
-//
-// WithDestination enables capturing http response body with the
-// given struct template. bodyTemplate struct MUST be a pointer.
-// WithJSONNumb tells the decoder to use decoder.UseNumber().
+// DoOption is a functional option for [Client.Do].
 type DoOption func(options *doOpts) error
 
 type doOpts struct {
@@ -114,6 +111,8 @@ type doOpts struct {
 	useJSONNum   bool
 }
 
+// WithDestination decodes the HTTP response body into bodyTemplate.
+// bodyTemplate must be a pointer.
 func WithDestination[T any](bodyTemplate *T) DoOption {
 	return func(opts *doOpts) error {
 		opts.responseBody = bodyTemplate
@@ -122,6 +121,8 @@ func WithDestination[T any](bodyTemplate *T) DoOption {
 	}
 }
 
+// WithJSONNumb tells the JSON decoder to use [json.Decoder.UseNumber],
+// preserving number precision as [json.Number] instead of float64.
 func WithJSONNumb() DoOption {
 	return func(opts *doOpts) error {
 		opts.useJSONNum = true
@@ -130,14 +131,7 @@ func WithJSONNumb() DoOption {
 	}
 }
 
-// /////////////////////////////////////////////////////////////////
-
-// RequestOption defines optional settings for *Client.Request
-//
-// WithPayload enables setting a body for the outgoing Request.
-// WithContentType enables setting the Content-Type header.
-// WithHeaders enables setting custom headers.
-// WithCookies enables injecting cookie(s) into the request.
+// RequestOption is a functional option for [Request].
 type RequestOption func(options *requestOpts) error
 
 type requestOpts struct {
@@ -147,6 +141,7 @@ type requestOpts struct {
 	headers     map[string][]string
 }
 
+// WithPayload sets the JSON-encoded request body.
 func WithPayload(body any) RequestOption {
 	return func(opts *requestOpts) error {
 		opts.body = body
@@ -155,6 +150,7 @@ func WithPayload(body any) RequestOption {
 	}
 }
 
+// WithContentType overrides the default "application/json" Content-Type header.
 func WithContentType(contentType string) RequestOption {
 	return func(opts *requestOpts) error {
 		if contentType == "" {
@@ -167,6 +163,7 @@ func WithContentType(contentType string) RequestOption {
 	}
 }
 
+// WithHeaders adds custom headers to the outgoing request.
 func WithHeaders(headers map[string][]string) RequestOption {
 	return func(opts *requestOpts) error {
 		opts.headers = headers
@@ -175,6 +172,7 @@ func WithHeaders(headers map[string][]string) RequestOption {
 	}
 }
 
+// WithCookies attaches the given cookies to the outgoing request.
 func WithCookies(cookies ...*http.Cookie) RequestOption {
 	return func(opts *requestOpts) error {
 		opts.cookies = cookies
@@ -183,11 +181,7 @@ func WithCookies(cookies ...*http.Cookie) RequestOption {
 	}
 }
 
-// /////////////////////////////////////////////////////////////////
-
-// URLOption enables settings for constructing a url.URL.
-// WithQueryStrings enables providing query strings to url.URL.
-// WithPort enables adding a port number to the host field.
+// URLOption is a functional option for [URL].
 type URLOption func(options *urlOpts)
 
 type urlOpts struct {
@@ -195,12 +189,14 @@ type urlOpts struct {
 	port         *int
 }
 
+// WithQueryStrings appends query parameters to the URL.
 func WithQueryStrings(queryKV map[string]string) URLOption {
 	return func(opts *urlOpts) {
 		opts.queryStrings = queryKV
 	}
 }
 
+// WithPort sets the port number on the URL's host.
 func WithPort(port int) URLOption {
 	return func(opts *urlOpts) {
 		opts.port = &port

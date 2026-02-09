@@ -5,18 +5,10 @@ import (
 	"hash"
 )
 
-// Option defines optional settings for downloading files.
-// WithChecksum enables checksum validation of the downloaded file.
-// h is a hash.Hash instance (e.g. sha256.New()), and expected is the
-// hex-encoded expected checksum string.
-//
-// WithProgress enables periodic download progress logging via the
-// logger supplied to Handle.
-//
-// WithSkipExisting causes Handle to return nil immediately when
-// the destination file already exists, avoiding a redundant download.
+// Option is a functional option for configuring a download via [Handle].
 type Option func(*Options) error
 
+// Options holds the resolved configuration for a single download.
 type Options struct {
 	checksum     *checksumVerifier
 	progress     bool
@@ -31,7 +23,7 @@ func WithBatch(maxConcurrent int) Option {
 		if opts.Group != nil {
 			return errors.New("WithBatch cannot be used with Result.Add")
 		}
-		opts.Group = NewQueue(maxConcurrent)
+		opts.Group = newQueue(maxConcurrent)
 		return nil
 	}
 }
@@ -43,6 +35,9 @@ func withBatch(queue *Queue) Option {
 	}
 }
 
+// WithChecksum enables checksum validation of the downloaded file.
+// h is a [hash.Hash] instance (e.g. sha256.New()), and expected is the
+// hex-encoded expected checksum string.
 func WithChecksum(h hash.Hash, expected string) Option {
 	return func(opts *Options) error {
 		if h == nil {
@@ -58,6 +53,8 @@ func WithChecksum(h hash.Hash, expected string) Option {
 	}
 }
 
+// WithProgress enables periodic download progress logging via the
+// logger supplied to [Handle].
 func WithProgress() Option {
 	return func(opts *Options) error {
 		opts.progress = true
@@ -65,6 +62,8 @@ func WithProgress() Option {
 	}
 }
 
+// WithSkipExisting causes [Handle] to return nil immediately when
+// the destination file already exists, avoiding a redundant download.
 func WithSkipExisting() Option {
 	return func(opts *Options) error {
 		opts.skipExisting = true

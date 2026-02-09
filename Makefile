@@ -5,6 +5,7 @@ dev-setup:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/rakyll/gotest@latest
+	go install golang.org/x/pkgsite/cmd/pkgsite@latest
 # ######################################################################################################################
 # Tests
 # ######################################################################################################################
@@ -22,6 +23,13 @@ vuln:
 	govulncheck ./...
 
 check: test lint vuln
+# ######################################################################################################################
+# Docs
+# ######################################################################################################################
+docs:
+	@echo "Starting pkgsite at http://localhost:6060/github.com/adamwoolhether/httper/client"
+	@open http://localhost:6060/github.com/adamwoolhether/httper/client &
+	pkgsite -http=localhost:6060
 # ######################################################################################################################
 # Modules
 # ######################################################################################################################

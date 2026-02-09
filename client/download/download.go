@@ -1,5 +1,3 @@
-// Package download enables streaming HTTP response bodies to disk
-// with optional checksum validation and progress reporting.
 package download
 
 import (
@@ -13,8 +11,8 @@ import (
 	"time"
 )
 
-// Handle streams body to a temp file in the same as destPath and
-// then renamed on success. On any error the temp file is removed.
+// Handle streams body to a temp file in the same directory as destPath, then renames it
+// on success. On any error the temp file is removed.
 func Handle(ctx context.Context, body io.Reader, contentLength int64, destPath string, logger *slog.Logger, opts Options) error {
 	if opts.skipExisting {
 		if _, err := os.Stat(destPath); err == nil {

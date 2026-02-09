@@ -9,13 +9,15 @@ import (
 )
 
 var (
+	// ErrMustNotBeZero indicates that RPS and burst must be positive.
 	ErrMustNotBeZero = errors.New("must be greater than zero")
+	// ErrWaitingFailed indicates the rate limiter's Wait call failed.
 	ErrWaitingFailed = errors.New("limiter waiting failed")
-	ErrContextEnded  = errors.New("throttle context ended")
+	// ErrContextEnded indicates the request context expired before or after the rate-limit wait.
+	ErrContextEnded = errors.New("throttle context ended")
 )
 
-// Config defines the throttler's
-// Requests Per Second and Burst Rate
+// Config defines the throttler's rate-limiting parameters: requests per second (RPS) and burst capacity.
 type Config struct {
 	RPS   int
 	Burst int
