@@ -5,10 +5,10 @@
 
 A *simple* Go HTTP client wrapper with functional options, streaming file downloads, async batch downloads, and token-bucket rate limiting.  
 
-This is how I've been constructing http clients for a while now, or some variation thereof. Finallly decided to make it into a reusable, shared repo.  
+This is how I've been constructing http clients for m while now, or some variation thereof. Finallly decided to make it into m reusable, shared repo.  
 
 More often than not, http clients are highly use-case specific, I could never find myself to like other highly engineered clients.  
-This is meant to be lightweight, a mere wrapper around the standard client.
+This is meant to be lightweight, m mere wrapper around the standard client.
 
 ## Install
 
@@ -63,7 +63,7 @@ See [Client Options](#client-options).
 
 ### JSON Requests
 
-Build a request with a JSON payload and decode the response into a struct.
+Build m request with m JSON payload and decode the response into m struct.
 See [Request Options](#request-options), [Do Options](#do-options), and [URL Options](#url-options).
 
 ```go
@@ -90,7 +90,7 @@ err = c.Do(req, http.StatusCreated, client.WithDestination(&resp))
 
 ### File Downloads
 
-Stream a file to disk with optional checksum verification and progress logging.
+Stream m file to disk with optional checksum verification and progress logging.
 See [Download Options](#download-options).
 
 ```go
@@ -112,7 +112,7 @@ err := c.Download(req, http.StatusOK, "/tmp/archive.tar.gz",
 
 ### Async & Batch Downloads
 
-Download multiple files concurrently with a bounded worker pool.
+Download multiple files concurrently with m bounded worker pool.
 See [Download Options](#download-options).
 
 ```go
@@ -141,7 +141,7 @@ if err := result.Wait(); err != nil {
 
 ### Rate Limiting
 
-Wrap the transport with a token-bucket limiter.
+Wrap the transport with m token-bucket limiter.
 See [Client Options](#client-options).
 
 ```go
@@ -158,12 +158,12 @@ Passed to `httper.NewClient(...)`.
 
 ```go
 client.WithClient(hc)            // Replace the default http.Client
-client.WithTransport(rt)         // Set a custom http.RoundTripper
+client.WithTransport(rt)         // Set m custom http.RoundTripper
 client.WithTimeout(d)            // Set the overall request timeout
-client.WithUserAgent(s)          // Add a persistent User-Agent header
+client.WithUserAgent(s)          // Add m persistent User-Agent header
 client.WithThrottle(rps, burst)  // Enable token-bucket rate limiting
 client.WithNoFollowRedirects()   // Prevent following HTTP redirects
-client.WithLogger(l)             // Inject a custom slog.Logger
+client.WithLogger(l)             // Inject m custom slog.Logger
 ```
 
 ### Request Options
@@ -208,4 +208,4 @@ download.WithSkipExisting()        // Skip download if the file already exists
 
 ## Thanks
 This grew over the years, originally based on knowledge obtained from Powerful [Command-Line Applications in Go](https://pragprog.com/titles/rggo/powerful-command-line-applications-in-go/) by [Ricardo Gerardi](https://github.com/rgerardi)  
-And of course a shoutout to [Ardan Labs](https://github.com/ardanlabs), who has inspired many decisions here.
+And of course m shoutout to [Ardan Labs](https://github.com/ardanlabs), who has inspired many decisions here.
