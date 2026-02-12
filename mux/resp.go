@@ -31,7 +31,7 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, statusCode int, data an
 }
 
 func Redirect(w http.ResponseWriter, r *http.Request, url string, code int) error {
-	if code/100 != 3 { // code < 300 || code > 399
+	if code < 300 || code > 399 { // code < 300 || code > 399
 		return fmt.Errorf("invalid redirect code: %d", code)
 	}
 

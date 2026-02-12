@@ -4,11 +4,11 @@ package mux
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -22,6 +22,7 @@ type Mux struct {
 	globalMW []Middleware
 	mw       []Middleware
 	group    string
+	log      *slog.Logger
 	tracer   trace.Tracer
 }
 
@@ -31,9 +32,9 @@ type Handler func(w http.ResponseWriter, r *http.Request) error
 // Middleware defines a signature to chain Handler together.
 type Middleware func(handler Handler) Handler
 
-func New(options ...func(*Options)) *Mux {
-	var opts Options
-	for _, opt := range options {
+func New(optFns ...func(*options)) *Mux {
+	var opts options
+	for _, opt := range optFns {
 		opt(&opts)
 	}
 
@@ -41,6 +42,7 @@ func New(options ...func(*Options)) *Mux {
 
 	app := &Mux{
 		mux:    mux,
+		log:    slog.Default(),
 		tracer: noop.NewTracerProvider().Tracer("no-op tracer"),
 	}
 
@@ -76,10 +78,6 @@ func (m *Mux) Use(mw ...Middleware) {
 	m.mw = append(m.mw, mw...)
 }
 
-func (m *Mux) ApplyGlobalMW(mw ...Middleware) {
-	m.globalMW = append(m.globalMW, mw...)
-}
-
 func (m *Mux) Get(path string, fn Handler, mw ...Middleware) {
 	m.handle(http.MethodGet, m.group, path, fn, mw...)
 }
@@ -108,7 +106,9 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	wrapped := wrap(m.globalMW, serveHTTP)
 
-	_ = wrapped(w, r)
+	if err := wrapped(w, r); err != nil {
+		m.log.Error("mux", "serve http", err)
+	}
 }
 
 func (m *Mux) handle(method, group, path string, handler Handler, mw ...Middleware) {
@@ -120,28 +120,32 @@ func (m *Mux) handle(method, group, path string, handler Handler, mw ...Middlewa
 		defer span.End()
 
 		v := BaseValues{
-			TraceID: uuid.NewString(),
+			TraceID: span.SpanContext().SpanID().String(),
 			Now:     time.Now().UTC(),
 			Tracer:  m.tracer,
 		}
 		r = r.WithContext(setValues(ctx, &v))
 
-		_ = handler(w, r)
+		if err := handler(w, r); err != nil {
+			m.log.Error("mux", "handle", err)
+		}
 	}
 
 	finalPath := path
 	if group != "" {
-		finalPath = fmt.Sprintf("%s%s", group, path)
+		finalPath = fmt.Sprintf("/%s%s", group, path)
 	}
 
 	pattern := fmt.Sprintf("%s %s", method, finalPath)
 
 	m.mux.HandleFunc(pattern, h)
-} // handleNoMiddleware runs the handleware without any middleware.
 
+} // handleNoMiddleware runs the middleware without any middleware.
 func (m *Mux) handleNoMiddleware(method, group, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
-		_ = handler(w, r)
+		if err := handler(w, r); err != nil {
+			m.log.Error("mux", "handle no mw", err)
+		}
 	}
 
 	finalPath := path
