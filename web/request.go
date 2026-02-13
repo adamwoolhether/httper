@@ -7,6 +7,16 @@ import (
 	"strconv"
 )
 
+// Param extracts a path parameter by key and returns its string value.
+func Param(r *http.Request, key string) (string, error) {
+	val := r.PathValue(key)
+	if val == "" {
+		return "", fmt.Errorf("path param[%s] not found", key)
+	}
+
+	return val, nil
+}
+
 // ParamInt extracts a path parameter by key and parses it as an int.
 func ParamInt(r *http.Request, key string) (int, error) {
 	val := r.PathValue(key)
@@ -37,16 +47,6 @@ func ParamInt64(r *http.Request, key string) (int64, error) {
 	return v, nil
 }
 
-// Param extracts a path parameter by key and returns its string value.
-func Param(r *http.Request, key string) (string, error) {
-	val := r.PathValue(key)
-	if val == "" {
-		return "", fmt.Errorf("path param[%s] not found", key)
-	}
-
-	return val, nil
-}
-
 // QueryString extracts a query parameter by key and returns its string value.
 func QueryString(r *http.Request, key string) (string, error) {
 	val := r.URL.Query().Get(key)
@@ -67,6 +67,21 @@ func QueryBool(r *http.Request, key string) (bool, error) {
 	v, err := strconv.ParseBool(val)
 	if err != nil {
 		return false, fmt.Errorf("query param[%s] must be boolean: %w", key, err)
+	}
+
+	return v, nil
+}
+
+// QueryInt64 extracts a query parameter by key and parses it as an int64.
+func QueryInt(r *http.Request, key string) (int, error) {
+	val := r.URL.Query().Get(key)
+	if val == "" {
+		return 0, fmt.Errorf("query param[%s] not found", key)
+	}
+
+	v, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, fmt.Errorf("query param[%s] must be integer: %w", key, err)
 	}
 
 	return v, nil

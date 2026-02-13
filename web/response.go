@@ -39,19 +39,19 @@ func RespondJSON(ctx context.Context, w http.ResponseWriter, statusCode int, dat
 // for *errs.Error (uses its code), errs.FieldErrors (responds 422), or wraps the
 // message in {"error": "..."} with the given status code.
 func RespondError(ctx context.Context, w http.ResponseWriter, statusCode int, err error) error {
-	var appErr *errs.Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*errs.Error](err); ok {
 		return RespondJSON(ctx, w, appErr.Code, appErr)
 	}
 
-	var fieldErrs errs.FieldErrors
-	if errors.As(err, &fieldErrs) {
+	if fieldErrs, ok := errors.AsType[errs.FieldErrors](err); ok {
 		return RespondJSON(ctx, w, http.StatusUnprocessableEntity, fieldErrs)
 	}
 
-	return RespondJSON(ctx, w, statusCode, struct {
+	errResp := struct {
 		Error string `json:"error"`
-	}{Error: err.Error()})
+	}{Error: err.Error()}
+
+	return RespondJSON(ctx, w, statusCode, errResp)
 }
 
 // Redirect issues an HTTP redirect to the given URL. The status code

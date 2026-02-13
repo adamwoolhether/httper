@@ -21,20 +21,19 @@ func Errors(log *slog.Logger) mux.Middleware {
 				return nil
 			}
 
-			var fieldErrs errs.FieldErrors
-			if errors.As(err, &fieldErrs) {
-				return web.RespondJSON(ctx, w, http.StatusUnprocessableEntity, fieldErrs)
+			if fieldErr, ok := errors.AsType[errs.FieldErrors](err); ok {
+				return web.RespondJSON(ctx, w, http.StatusUnprocessableEntity, fieldErr)
 			}
 
-			var appErr *errs.Error
-			if !errors.As(err, &appErr) {
+			appErr, ok := errors.AsType[*errs.Error](err)
+			if !ok { // to catch errs that may have escaped, obscure them from public view.
 				appErr = errs.NewInternal(err)
 			}
 
 			log.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
 
-			if appErr.InnerErr {
-				appErr.Message = "internal server error"
+			if appErr.InnerErr { // after logging, obscure the internal error from public view.
+				appErr.Message = http.StatusText(appErr.Code)
 			}
 
 			return web.RespondJSON(ctx, w, appErr.Code, appErr)
