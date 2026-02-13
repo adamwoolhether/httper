@@ -1,6 +1,11 @@
 package mux
 
 import (
+	"context"
+	"fmt"
+	"io/fs"
+	"net/http"
+
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -39,18 +44,18 @@ func WithStaticFS(h Handler) func(opts *options) {
 }
 
 func Static() Handler {
-	// f := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	// 	subFS, err := fs.Sub(publicFS, "assets")
-	// 	if err != nil {
-	// 		return fmt.Errorf("couldn't load assets: %w", err)
-	// 	}
-	//
-	// 	h := http.StripPrefix(web.StaticPath, http.FileServer(http.FS(subFS)))
-	// 	h.ServeHTTP(w, r)
-	//
-	// 	return nil
-	// }
-	//
-	// return f
+	f := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		subFS, err := fs.Sub(publicFS, "assets")
+		if err != nil {
+			return fmt.Errorf("couldn't load assets: %w", err)
+		}
+
+		h := http.StripPrefix(web.StaticPath, http.FileServer(http.FS(subFS)))
+		h.ServeHTTP(w, r)
+
+		return nil
+	}
+
+	return f
 	return nil
 }

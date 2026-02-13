@@ -41,9 +41,10 @@ func New(optFns ...func(*options)) *Mux {
 	mux := http.NewServeMux()
 
 	app := &Mux{
-		mux:    mux,
-		log:    slog.Default(),
-		tracer: noop.NewTracerProvider().Tracer("no-op tracer"),
+		mux:      mux,
+		globalMW: opts.globalMW,
+		log:      slog.Default(),
+		tracer:   noop.NewTracerProvider().Tracer("no-op tracer"),
 	}
 
 	if opts.tracer != nil {
@@ -120,7 +121,7 @@ func (m *Mux) handle(method, group, path string, handler Handler, mw ...Middlewa
 		defer span.End()
 
 		v := BaseValues{
-			TraceID: span.SpanContext().SpanID().String(),
+			TraceID: span.SpanContext().TraceID().String(),
 			Now:     time.Now().UTC(),
 			Tracer:  m.tracer,
 		}
@@ -139,8 +140,9 @@ func (m *Mux) handle(method, group, path string, handler Handler, mw ...Middlewa
 	pattern := fmt.Sprintf("%s %s", method, finalPath)
 
 	m.mux.HandleFunc(pattern, h)
+}
 
-} // handleNoMiddleware runs the middleware without any middleware.
+// handleNoMiddleware runs the middleware without any middleware.
 func (m *Mux) handleNoMiddleware(method, group, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
 		if err := handler(w, r); err != nil {
