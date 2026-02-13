@@ -1,10 +1,14 @@
 module github.com/adamwoolhether/httper
 
-go 1.25.7
+go 1.26
 
 require golang.org/x/time v0.14.0
 
 tool (
+	github.com/adamwoolhether/httper
+	github.com/adamwoolhether/httper/client
+	github.com/adamwoolhether/httper/client/download
+	github.com/adamwoolhether/httper/client/throttle
 	github.com/rakyll/gotest
 	golang.org/x/pkgsite/cmd/pkgsite
 	golang.org/x/vuln/cmd/govulncheck
