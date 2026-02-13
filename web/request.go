@@ -72,7 +72,7 @@ func QueryBool(r *http.Request, key string) (bool, error) {
 	return v, nil
 }
 
-// QueryInt64 extracts a query parameter by key and parses it as an int64.
+// QueryInt extracts a query parameter by key and parses it as an int.
 func QueryInt(r *http.Request, key string) (int, error) {
 	val := r.URL.Query().Get(key)
 	if val == "" {

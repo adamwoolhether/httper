@@ -10,6 +10,8 @@ import (
 	"github.com/adamwoolhether/httper/web/mux"
 )
 
+// Logger logs the start and completion of each request, including
+// method, path, remote address, status code, and elapsed time.
 func Logger(log *slog.Logger) mux.Middleware {
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {

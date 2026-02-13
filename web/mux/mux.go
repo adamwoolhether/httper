@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -66,6 +67,7 @@ func (a *App) Group() *App {
 	return &App{
 		mux:    a.mux,
 		mw:     slices.Clone(a.mw),
+		log:    a.log,
 		tracer: a.tracer,
 	}
 }
@@ -76,7 +78,8 @@ func (a *App) Mount(subRoute string) *App {
 	return &App{
 		mux:    a.mux,
 		mw:     slices.Clone(a.mw),
-		group:  subRoute,
+		log:    a.log,
+		group:  strings.TrimLeft(subRoute, "/"),
 		tracer: a.tracer,
 	}
 }

@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -35,23 +34,10 @@ func RespondJSON(ctx context.Context, w http.ResponseWriter, statusCode int, dat
 	return nil
 }
 
-// RespondError writes a structured JSON error response. It inspects the error
-// for *errs.Error (uses its code), errs.FieldErrors (responds 422), or wraps the
-// message in {"error": "..."} with the given status code.
-func RespondError(ctx context.Context, w http.ResponseWriter, statusCode int, err error) error {
-	if appErr, ok := errors.AsType[*errs.Error](err); ok {
-		return RespondJSON(ctx, w, appErr.Code, appErr)
-	}
-
-	if fieldErrs, ok := errors.AsType[errs.FieldErrors](err); ok {
-		return RespondJSON(ctx, w, http.StatusUnprocessableEntity, fieldErrs)
-	}
-
-	errResp := struct {
-		Error string `json:"error"`
-	}{Error: err.Error()}
-
-	return RespondJSON(ctx, w, statusCode, errResp)
+// RespondError writes a structured JSON error response using the
+// status code and message from the given *errs.Error.
+func RespondError(ctx context.Context, w http.ResponseWriter, err *errs.Error) error {
+	return RespondJSON(ctx, w, err.Code, err)
 }
 
 // Redirect issues an HTTP redirect to the given URL. The status code

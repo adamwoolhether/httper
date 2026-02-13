@@ -8,16 +8,32 @@ import (
 	"strings"
 
 	"github.com/adamwoolhether/httper/web"
+	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/mux"
 )
 
+// DefaultAllowHeaders is the default set of headers permitted in
+// cross-origin requests when no custom list is provided to CORS.
+
 // CORS middleware for handling CORS settings.
 // If `*` is given, all origins will be accepted.
-// We explicitly call web.RespondError and web.RespondJSON for errors here,
-// as this middleware is wrapped globally and errors
-// may potentially not be seen by errors middleware.
-func CORS(allowedOrigins ...string) mux.Middleware {
+// Sensivle default headers are set, and can be optionally
+// overridden with the variadic allowedHeaders parameter.
+func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
+	defaultHeaders := []string{
+		"Authorization",
+		"Content-Type",
+		"Accept",
+		"X-Requested-With",
+		"Cache-Control",
+	}
+
+	if len(allowedHeaders) == 0 {
+		allowedHeaders = defaultHeaders
+	}
+
 	originAllowed := CheckOriginFunc(allowedOrigins)
+	headers := strings.Join(allowedHeaders, ", ")
 
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -32,13 +48,9 @@ func CORS(allowedOrigins ...string) mux.Middleware {
 				w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS, PUT, POST, PATCH, DELETE")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Max-Age", "86400")
-				w.Header().Set("Access-Control-Allow-Headers",
-					"Content-Type, Depth, User-Agent, X-File-Size, X-Requested-With, If-Modified-Since, X-File-Name, "+
-						"Cache-Control, Authorization, Accept, Accept-Encoding, Accept-Language, "+
-						"Access-Control-Request-Headers, Access-Control-Request-Method, Connection, Host, Origin, "+
-						"X-User-Agent, App-Version")
+				w.Header().Set("Access-Control-Allow-Headers", headers)
 			} else {
-				return web.RespondError(ctx, w, http.StatusForbidden, fmt.Errorf("CORS origin[%s] not allowed", origin))
+				return web.RespondError(ctx, w, errs.New(http.StatusForbidden, fmt.Errorf("CORS origin[%s] not allowed", origin)))
 			}
 
 			if r.Method == http.MethodOptions {
