@@ -1,6 +1,7 @@
-package web
+package mux
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 
@@ -15,13 +16,13 @@ type options struct {
 	globalMW   []Middleware
 }
 
-// WithCORS appends CORS middleware to the global middleware stack,
-// configured to accept the given origin patterns.
-func WithCORS(allowsOrigins ...string) func(opts *options) {
-	return func(opts *options) {
-		opts.globalMW = append(opts.globalMW, cors(allowsOrigins...))
-	}
-}
+// // WithCORS appends CORS middleware to the global middleware stack,
+// // configured to accept the given origin patterns.
+// func WithCORS(allowsOrigins ...string) func(opts *options) {
+// 	return func(opts *options) {
+// 		opts.globalMW = append(opts.globalMW, cors(allowsOrigins...))
+// 	}
+// }
 
 // WithGlobalMW appends the given middleware to the global middleware
 // stack that wraps all handlers.
@@ -51,7 +52,7 @@ func WithStaticFS(fsys fs.FS, pathPrefix string) func(opts *options) {
 // Adapt converts a standard http.Handler into a web Handler, enabling
 // registration of third-party or stdlib handlers on the App.
 func Adapt(h http.Handler) Handler {
-	return func(w http.ResponseWriter, r *http.Request) error {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		h.ServeHTTP(w, r)
 		return nil
 	}

@@ -1,4 +1,4 @@
-package web
+package mux
 
 import (
 	"context"
@@ -34,8 +34,8 @@ func SetStatusCode(ctx context.Context, statusCode int) {
 	v.StatusCode = statusCode
 }
 
-// GetBaseValues retrieves the BaseValues from the given context.
-func GetBaseValues(ctx context.Context) *BaseValues {
+// GetValues retrieves the BaseValues from the given context.
+func GetValues(ctx context.Context) *BaseValues {
 	v, ok := ctx.Value(base).(*BaseValues)
 	if !ok {
 		return &BaseValues{

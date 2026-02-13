@@ -1,5 +1,5 @@
 // Package web provides helpers for middleware and route handling.
-package web
+package mux
 
 import (
 	"context"
@@ -27,7 +27,7 @@ type App struct {
 }
 
 // Handler is a http.Handler that returns an error.
-type Handler func(w http.ResponseWriter, r *http.Request) error
+type Handler func(ctx context.Context, w http.ResponseWriter, r *http.Request) error
 
 // Middleware defines a signature to chain Handler together.
 type Middleware func(handler Handler) Handler
@@ -113,13 +113,13 @@ func (a *App) Delete(path string, fn Handler, mw ...Middleware) {
 
 // ServeHTTP implements http.Handler, wrapping global middleware before serving the request.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	serveHTTP := func(w http.ResponseWriter, r *http.Request) error {
+	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		a.mux.ServeHTTP(w, r)
 		return nil
 	}
 	wrapped := wrap(a.globalMW, serveHTTP)
 
-	if err := wrapped(w, r); err != nil {
+	if err := wrapped(r.Context(), w, r); err != nil {
 		a.log.Error("web", "serve http", err)
 	}
 }
@@ -139,7 +139,7 @@ func (a *App) handle(method, group, path string, handler Handler, mw ...Middlewa
 		}
 		r = r.WithContext(setValues(ctx, &v))
 
-		if err := handler(w, r); err != nil {
+		if err := handler(r.Context(), w, r); err != nil {
 			a.log.Error("web", "handle", err)
 		}
 	}
@@ -158,7 +158,7 @@ func (a *App) handle(method, group, path string, handler Handler, mw ...Middlewa
 // route-level or group-level middleware stack.
 func (a *App) handleNoMiddleware(method, group, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
-		if err := handler(w, r); err != nil {
+		if err := handler(r.Context(), w, r); err != nil {
 			a.log.Error("web", "handle no mw", err)
 		}
 	}

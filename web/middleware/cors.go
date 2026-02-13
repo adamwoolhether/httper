@@ -1,25 +1,29 @@
-package web
+package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/adamwoolhether/httper/web"
+	"github.com/adamwoolhether/httper/web/mux"
 )
 
-// cors middleware for handling cors settings.
+// CORS middleware for handling CORS settings.
 // If `*` is given, all origins will be accepted.
 // We explicitly call web.Respond for errors here,
 // as this middleware is wrapped globally and errors
 // may potentially not be seen by errors middleware.
-func cors(allowedOrigins ...string) Middleware {
+func CORS(allowedOrigins ...string) mux.Middleware {
 	originAllowed := CheckOriginFunc(allowedOrigins)
 
-	m := func(handler Handler) Handler {
-		h := func(w http.ResponseWriter, r *http.Request) error {
+	m := func(handler mux.Handler) mux.Handler {
+		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			origin := r.Header.Get("origin")
 			if origin == "" { // Ignore the mw if no Origin header.
-				return handler(w, r)
+				return handler(ctx, w, r)
 			}
 
 			if originAllowed(origin) {
@@ -34,14 +38,14 @@ func cors(allowedOrigins ...string) Middleware {
 						"Access-Control-Request-Headers, Access-Control-Request-Method, Connection, Host, Origin, "+
 						"X-User-Agent, App-Version")
 			} else {
-				return RespondError(w, r, http.StatusForbidden, fmt.Errorf("cors origin[%s] not allowed", origin))
+				return web.RespondError(ctx, w, http.StatusForbidden, fmt.Errorf("CORS origin[%s] not allowed", origin))
 			}
 
 			if r.Method == http.MethodOptions {
-				return RespondJSON(w, r, http.StatusNoContent, nil)
+				return web.RespondJSON(ctx, w, http.StatusNoContent, nil)
 			}
 
-			return handler(w, r)
+			return handler(ctx, w, r)
 		}
 		return h
 	}
