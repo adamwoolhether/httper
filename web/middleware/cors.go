@@ -13,7 +13,7 @@ import (
 
 // CORS middleware for handling CORS settings.
 // If `*` is given, all origins will be accepted.
-// We explicitly call web.Respond for errors here,
+// We explicitly call web.RespondError and web.RespondJSON for errors here,
 // as this middleware is wrapped globally and errors
 // may potentially not be seen by errors middleware.
 func CORS(allowedOrigins ...string) mux.Middleware {
@@ -68,20 +68,19 @@ func CheckOriginFunc(allowedOrigins []string) func(string) bool {
 		return false
 	}
 
-	// Ensure the given list from config is actually an array.
-	// Needed because the comma-seperated list from Terraform is
-	// being interpreted as a single string.
-	seperated := make([]string, 0)
+	// Ensure the given list from config is actually an array
+	// in case the user gives a comma-separated string instead of an array of strings.
+	separated := make([]string, 0)
 	for _, o := range allowedOrigins {
-		seperated = append(seperated, strings.Split(o, ",")...)
+		separated = append(separated, strings.Split(o, ",")...)
 	}
 
 	allowed := make(map[string]bool)
 	wildCardOrigins := make([]string, 0)
 
-	// collected non-wildcard origins in `allowed` map,
-	// and wildcard origins on `wilCardOrigins`.
-	for _, o := range seperated {
+	// Collect non-wildcard origins in `allowed` map,
+	// and wildcard origins on `wildCardOrigins`.
+	for _, o := range separated {
 		switch {
 		case o == "*": // Check for the `allowAll` catchall.
 			allowed["*"] = true
