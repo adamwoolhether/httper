@@ -1,6 +1,7 @@
-package mux
+package web
 
 import (
+	"encoding/json"
 	"errors"
 )
 
@@ -12,6 +13,18 @@ type Error struct {
 
 func (err Error) Error() string {
 	return err.Message.Error()
+}
+
+// MarshalJSON implements json.Marshaler, encoding Message as its string
+// representation so the error text appears in JSON output.
+func (err Error) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}{
+		Code:    err.Code,
+		Message: err.Message.Error(),
+	})
 }
 
 func (err Error) Unwrap() error {

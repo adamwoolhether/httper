@@ -1,4 +1,4 @@
-package mux
+package web
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"strconv"
 )
 
+// ParamInt extracts a path parameter by key and parses it as an int.
 func ParamInt(r *http.Request, key string) (int, error) {
 	val := r.PathValue(key)
 	if val == "" {
@@ -21,6 +22,7 @@ func ParamInt(r *http.Request, key string) (int, error) {
 	return v, nil
 }
 
+// ParamInt64 extracts a path parameter by key and parses it as an int64.
 func ParamInt64(r *http.Request, key string) (int64, error) {
 	val := r.PathValue(key)
 	if val == "" {
@@ -35,6 +37,7 @@ func ParamInt64(r *http.Request, key string) (int64, error) {
 	return v, nil
 }
 
+// Param extracts a path parameter by key and returns its string value.
 func Param(r *http.Request, key string) (string, error) {
 	val := r.PathValue(key)
 	if val == "" {
@@ -44,6 +47,7 @@ func Param(r *http.Request, key string) (string, error) {
 	return val, nil
 }
 
+// QueryString extracts a query parameter by key and returns its string value.
 func QueryString(r *http.Request, key string) (string, error) {
 	val := r.URL.Query().Get(key)
 	if val == "" {
@@ -53,6 +57,7 @@ func QueryString(r *http.Request, key string) (string, error) {
 	return val, nil
 }
 
+// QueryBool extracts a query parameter by key and parses it as a bool.
 func QueryBool(r *http.Request, key string) (bool, error) {
 	val := r.URL.Query().Get(key)
 	if val == "" {
@@ -67,6 +72,7 @@ func QueryBool(r *http.Request, key string) (bool, error) {
 	return v, nil
 }
 
+// QueryInt64 extracts a query parameter by key and parses it as an int64.
 func QueryInt64(r *http.Request, key string) (int64, error) {
 	val := r.URL.Query().Get(key)
 	if val == "" {

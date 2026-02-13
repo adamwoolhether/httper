@@ -1,7 +1,6 @@
-package mux
+package web
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 
@@ -16,11 +15,16 @@ var translator ut.Translator
 
 func init() {
 	validate = validator.New()
-	translator, _ = ut.New(en.New(), en.New()).GetTranslator("en")
-	err := en_translations.RegisterDefaultTranslations(validate, translator)
-	if err != nil {
+	var ok bool
+	translator, ok = ut.New(en.New(), en.New()).GetTranslator("en")
+	if !ok {
+		panic("web: failed to get 'en' translator")
+	}
+
+	if err := en_translations.RegisterDefaultTranslations(validate, translator); err != nil {
 		panic(err)
 	}
+
 	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
 		if name == "-" {
@@ -53,6 +57,7 @@ func Validate(val any) error {
 	return nil
 }
 
+// FieldError represents a single validation error for a specific field.
 type FieldError struct {
 	Field string `json:"field"`
 	Err   string `json:"error"`
@@ -61,13 +66,14 @@ type FieldError struct {
 // FieldErrors represents a collection of field errors.
 type FieldErrors []FieldError
 
-// Error implements the error interface.
+// Error implements the error interface, returning a human-readable
+// summary of all field errors.
 func (fe FieldErrors) Error() string {
-	d, err := json.Marshal(fe)
-	if err != nil {
-		return err.Error()
+	parts := make([]string, len(fe))
+	for i, f := range fe {
+		parts[i] = f.Field + ": " + f.Err
 	}
-	return string(d)
+	return strings.Join(parts, "; ")
 }
 
 func customErrForTag(tag string, verror validator.FieldError) string {

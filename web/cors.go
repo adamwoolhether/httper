@@ -1,4 +1,4 @@
-package mux
+package web
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func cors(allowedOrigins ...string) Middleware {
 						"Access-Control-Request-Headers, Access-Control-Request-Method, Connection, Host, Origin, "+
 						"X-User-Agent, App-Version")
 			} else {
-				return RespondJSON(w, r, http.StatusForbidden, fmt.Errorf("cors origin[%s] not allowed", origin))
+				return RespondError(w, r, http.StatusForbidden, fmt.Errorf("cors origin[%s] not allowed", origin))
 			}
 
 			if r.Method == http.MethodOptions {

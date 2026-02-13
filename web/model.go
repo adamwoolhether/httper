@@ -1,4 +1,4 @@
-package mux
+package web
 
 const (
 	ContentTypeJSON      = "application/json; charset=utf-8"
