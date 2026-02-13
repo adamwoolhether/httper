@@ -105,11 +105,15 @@ func Decode[T any](r *http.Request, val *T) error {
 	return nil
 }
 
-// DecodeAllowUnknownFields is the same as Decode, but wont' reject unknown fields.
+// DecodeAllowUnknownFields is the same as Decode, but won't reject unknown fields.
 func DecodeAllowUnknownFields[T any](r *http.Request, val *T) error {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(val); err != nil {
 		return fmt.Errorf("decode: %w", err)
+	}
+
+	if err := Validate(val); err != nil {
+		return err
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-// Package web provides helpers for middleware and route handling.
+// Package mux provides helpers for middleware and route handling.
 package mux
 
 import (

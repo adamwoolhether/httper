@@ -41,6 +41,8 @@ func CSRF(logger *slog.Logger, allowedOrigins ...string) mux.Middleware {
 
 func errHandler(logger *slog.Logger) http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) {
+		mux.SetStatusCode(r.Context(), http.StatusForbidden)
+
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 
 		logger.Warn("csrf middleware", "error", "cross origin protection check failed")

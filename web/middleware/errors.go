@@ -21,6 +21,11 @@ func Errors(log *slog.Logger) mux.Middleware {
 				return nil
 			}
 
+			var fieldErrs errs.FieldErrors
+			if errors.As(err, &fieldErrs) {
+				return web.RespondJSON(ctx, w, http.StatusUnprocessableEntity, fieldErrs)
+			}
+
 			var appErr *errs.Error
 			if !errors.As(err, &appErr) {
 				appErr = errs.NewInternal(err)
@@ -32,7 +37,7 @@ func Errors(log *slog.Logger) mux.Middleware {
 				appErr.Message = "internal server error"
 			}
 
-			return web.RespondJSON(ctx, w, appErr.Code, appErr.Message)
+			return web.RespondJSON(ctx, w, appErr.Code, appErr)
 		}
 
 		return h

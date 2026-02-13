@@ -16,14 +16,6 @@ type options struct {
 	globalMW   []Middleware
 }
 
-// // WithCORS appends CORS middleware to the global middleware stack,
-// // configured to accept the given origin patterns.
-// func WithCORS(allowsOrigins ...string) func(opts *options) {
-// 	return func(opts *options) {
-// 		opts.globalMW = append(opts.globalMW, cors(allowsOrigins...))
-// 	}
-// }
-
 // WithGlobalMW appends the given middleware to the global middleware
 // stack that wraps all handlers.
 func WithGlobalMW(mw ...Middleware) func(opts *options) {

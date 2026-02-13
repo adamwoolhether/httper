@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/adamwoolhether/httper/web/errs"
+
 	"github.com/go-playground/locales/en"
 	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
@@ -35,7 +37,7 @@ func init() {
 	})
 }
 
-// Validate that the provided model against it's declared tags.
+// Validate that the provided model against its declared tags.
 func Validate(val any) error {
 	if err := validate.Struct(val); err != nil {
 		verrors, ok := err.(validator.ValidationErrors)
@@ -43,9 +45,9 @@ func Validate(val any) error {
 			return err
 		}
 
-		var fields FieldErrors
+		var fields errs.FieldErrors
 		for _, verror := range verrors {
-			field := FieldError{
+			field := errs.FieldError{
 				Field: verror.Field(),
 				Err:   customErrForTag(verror.Tag(), verror),
 			}
@@ -55,25 +57,6 @@ func Validate(val any) error {
 	}
 
 	return nil
-}
-
-// FieldError represents a single validation error for a specific field.
-type FieldError struct {
-	Field string `json:"field"`
-	Err   string `json:"error"`
-}
-
-// FieldErrors represents a collection of field errors.
-type FieldErrors []FieldError
-
-// Error implements the error interface, returning a human-readable
-// summary of all field errors.
-func (fe FieldErrors) Error() string {
-	parts := make([]string, len(fe))
-	for i, f := range fe {
-		parts[i] = f.Field + ": " + f.Err
-	}
-	return strings.Join(parts, "; ")
 }
 
 func customErrForTag(tag string, verror validator.FieldError) string {
