@@ -1,7 +1,6 @@
 package mux
 
 import (
-	"context"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -99,18 +98,9 @@ func WithLogger(log *slog.Logger) Option {
 func WithStaticFS(fsys fs.FS, pathPrefix string) Option {
 	return Option(func(opts *options) {
 		fsHandler := http.StripPrefix(pathPrefix, http.FileServer(http.FS(fsys)))
-		opts.staticFS = Adapt(fsHandler)
+		opts.staticFS = adapt(fsHandler)
 		opts.staticPath = pathPrefix
 	})
-}
-
-// Adapt converts a standard http.Handler into a web Handler, enabling
-// registration of third-party or stdlib handlers on the App.
-func Adapt(h http.Handler) Handler {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		h.ServeHTTP(w, r)
-		return nil
-	}
 }
 
 func name(mw Middleware) string {

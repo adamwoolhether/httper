@@ -25,8 +25,8 @@ func TestRespondJSON(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	if ct := w.Header().Get("Content-Type"); ct != web.ContentTypeJSON {
-		t.Fatalf("Content-Type = %q, want %q", ct, web.ContentTypeJSON)
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q, want %q", ct, "application/json")
 	}
 
 	var m map[string]string

@@ -198,25 +198,29 @@ func TestWithStaticFS(t *testing.T) {
 	}
 }
 
-func TestAdapt(t *testing.T) {
+func TestHandleRaw(t *testing.T) {
+	app := mux.New()
+
 	stdHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Adapted", "yes")
 		w.WriteHeader(http.StatusAccepted)
 	})
 
-	adapted := mux.Adapt(stdHandler)
+	app.HandleRaw(http.MethodGet, "", "/raw", stdHandler)
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	srv := httptest.NewServer(app)
+	defer srv.Close()
 
-	err := adapted(r.Context(), w, r)
+	resp, err := http.Get(srv.URL + "/raw")
 	if err != nil {
-		t.Fatalf("Adapt handler returned error: %v", err)
+		t.Fatalf("GET /raw: %v", err)
 	}
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusAccepted)
 	}
-	if got := w.Header().Get("X-Adapted"); got != "yes" {
+	if got := resp.Header.Get("X-Adapted"); got != "yes" {
 		t.Fatalf("X-Adapted = %q, want %q", got, "yes")
 	}
 }

@@ -59,10 +59,23 @@ func New(optFns ...Option) *App {
 	}
 
 	if opts.staticFS != nil {
-		app.handleNoMiddleware(http.MethodGet, "", opts.staticPath, opts.staticFS)
+		app.HandleNoMiddleware(http.MethodGet, "", opts.staticPath, opts.staticFS)
 	}
 
 	return app
+}
+
+// ServeHTTP implements http.Handler, wrapping global middleware before serving the request.
+func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		a.mux.ServeHTTP(w, r)
+		return nil
+	}
+	wrapped := wrap(a.globalMW, serveHTTP)
+
+	if err := wrapped(r.Context(), w, r); err != nil {
+		a.logger.Error("mux", "serve http", err)
+	}
 }
 
 // Group returns a new App that shares the same underlying ServeMux
@@ -97,43 +110,30 @@ func (a *App) Use(mw ...Middleware) {
 
 // Get registers a handler for GET requests at the given path.
 func (a *App) Get(path string, fn Handler, mw ...Middleware) {
-	a.handle(http.MethodGet, a.group, path, fn, mw...)
+	a.Handle(http.MethodGet, a.group, path, fn, mw...)
 }
 
 // Post registers a handler for POST requests at the given path.
 func (a *App) Post(path string, fn Handler, mw ...Middleware) {
-	a.handle(http.MethodPost, a.group, path, fn, mw...)
+	a.Handle(http.MethodPost, a.group, path, fn, mw...)
 }
 
 // Put registers a handler for PUT requests at the given path.
 func (a *App) Put(path string, fn Handler, mw ...Middleware) {
-	a.handle(http.MethodPut, a.group, path, fn, mw...)
+	a.Handle(http.MethodPut, a.group, path, fn, mw...)
 }
 
 // Patch registers a handler for PATCH requests at the given path.
 func (a *App) Patch(path string, fn Handler, mw ...Middleware) {
-	a.handle(http.MethodPatch, a.group, path, fn, mw...)
+	a.Handle(http.MethodPatch, a.group, path, fn, mw...)
 }
 
 // Delete registers a handler for DELETE requests at the given path.
 func (a *App) Delete(path string, fn Handler, mw ...Middleware) {
-	a.handle(http.MethodDelete, a.group, path, fn, mw...)
+	a.Handle(http.MethodDelete, a.group, path, fn, mw...)
 }
 
-// ServeHTTP implements http.Handler, wrapping global middleware before serving the request.
-func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		a.mux.ServeHTTP(w, r)
-		return nil
-	}
-	wrapped := wrap(a.globalMW, serveHTTP)
-
-	if err := wrapped(r.Context(), w, r); err != nil {
-		a.logger.Error("mux", "serve http", err)
-	}
-}
-
-func (a *App) handle(method, group, path string, handler Handler, mw ...Middleware) {
+func (a *App) Handle(method, group, path string, handler Handler, mw ...Middleware) {
 	handler = wrap(mw, handler)
 	handler = wrap(a.mw, handler)
 
@@ -169,9 +169,13 @@ func (a *App) handle(method, group, path string, handler Handler, mw ...Middlewa
 	a.mux.HandleFunc(pattern, h)
 }
 
-// handleNoMiddleware registers a handler without wrapping it in the
+func (a *App) HandleRaw(method, group, path string, handler http.Handler, mw ...Middleware) {
+	a.Handle(method, group, path, adapt(handler), mw...)
+}
+
+// HandleNoMiddleware registers a handler without wrapping it in the
 // route-level or group-level middleware stack.
-func (a *App) handleNoMiddleware(method, group, path string, handler Handler) {
+func (a *App) HandleNoMiddleware(method, group, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
 		if err := handler(r.Context(), w, r); err != nil {
 			a.logger.Error("mux", "handle no mw", err)
@@ -197,6 +201,14 @@ func (a *App) startSpan(w http.ResponseWriter, r *http.Request) (context.Context
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 
 	return ctx, span
+}
+
+// adapt converts a standard http.Handler into a web Handler.
+func adapt(h http.Handler) Handler {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		h.ServeHTTP(w, r)
+		return nil
+	}
 }
 
 // wrap middleware around the handler and execute in order given.

@@ -24,7 +24,7 @@ func RespondJSON(ctx context.Context, w http.ResponseWriter, statusCode int, dat
 		return err
 	}
 
-	w.Header().Set("Content-Type", ContentTypeJSON)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 
 	if _, err = w.Write(jsonData); err != nil {
