@@ -215,10 +215,15 @@ func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
 			b = []byte("unable to read body")
 		}
 
+		retErr := ErrUnexpectedStatusCode
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			retErr = errors.Join(retErr, ErrAuthFailure)
+		}
+
 		return &UnexpectedStatusError{
 			StatusCode: resp.StatusCode,
 			Body:       string(b),
-			Err:        ErrUnexpectedStatusCode,
+			Err:        retErr,
 		}
 	}
 

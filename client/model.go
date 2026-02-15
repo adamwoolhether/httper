@@ -15,8 +15,13 @@ const maxErrBodySize = 4 << 10 // 4KB
 // execFn represents a func to operate on a response.
 type execFn func(response *http.Response) error
 
-// ErrUnexpectedStatusCode is the sentinel error wrapped by [UnexpectedStatusError].
-var ErrUnexpectedStatusCode = errors.New("unexpected status code")
+var (
+	// ErrUnexpectedStatusCode is the sentinel error wrapped by [UnexpectedStatusError].
+	ErrUnexpectedStatusCode = errors.New("unexpected status code")
+	// ErrAuthFailure is joined with [ErrUnexpectedStatusCode] when the server
+	// responds with 401 Unauthorized or 403 Forbidden.
+	ErrAuthFailure = errors.New("auth failure")
+)
 
 // UnexpectedStatusError is returned when the HTTP response status code
 // does not match the expected value.

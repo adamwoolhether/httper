@@ -2005,3 +2005,67 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 		t.Fatal("expected error from Wait when WithBatch passed to Result.Add, got nil")
 	}
 }
+
+func TestClient_Do_AuthFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantAuth   bool
+	}{
+		{"401 Unauthorized", http.StatusUnauthorized, true},
+		{"403 Forbidden", http.StatusForbidden, true},
+		{"404 Not Found", http.StatusNotFound, false},
+		{"500 Internal Server Error", http.StatusInternalServerError, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.statusCode)
+				_, _ = w.Write([]byte("error body"))
+			}))
+			defer ts.Close()
+
+			testURL, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("parsing test server URL: %v", err)
+			}
+
+			c, err := client.Build()
+			if err != nil {
+				t.Fatalf("creating client: %v", err)
+			}
+
+			req, err := c.Request(t.Context(), testURL, http.MethodGet)
+			if err != nil {
+				t.Fatalf("creating request: %v", err)
+			}
+
+			err = c.Do(req, http.StatusOK)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if !errors.Is(err, client.ErrUnexpectedStatusCode) {
+				t.Errorf("expected ErrUnexpectedStatusCode, got: %v", err)
+			}
+
+			if got := errors.Is(err, client.ErrAuthFailure); got != tc.wantAuth {
+				t.Errorf("errors.Is(err, ErrAuthFailure) = %v, want %v", got, tc.wantAuth)
+			}
+
+			var statusErr *client.UnexpectedStatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected *UnexpectedStatusError, got: %T: %v", err, err)
+			}
+
+			if statusErr.StatusCode != tc.statusCode {
+				t.Errorf("expected status %d, got %d", tc.statusCode, statusErr.StatusCode)
+			}
+
+			if statusErr.Body != "error body" {
+				t.Errorf("expected body %q, got %q", "error body", statusErr.Body)
+			}
+		})
+	}
+}
