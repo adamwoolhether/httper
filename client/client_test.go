@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -221,9 +222,9 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	var transportCalled bool
+	var transportCalled atomic.Bool
 	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		transportCalled = true
+		transportCalled.Store(true)
 		return http.DefaultTransport.RoundTrip(r)
 	})
 
@@ -244,12 +245,12 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 	if err := clientA.Do(req, http.StatusOK); err != nil {
 		t.Errorf("order A: expected no error, got: %v", err)
 	}
-	if !transportCalled {
+	if !transportCalled.Load() {
 		t.Error("order A: custom transport was not called")
 	}
 
 	// Order B: UserAgent first, then Transport.
-	transportCalled = false
+	transportCalled.Store(false)
 	clientB, err := client.Build(
 		client.WithUserAgent(expectedUA),
 		client.WithTransport(custom),
@@ -266,7 +267,7 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 	if err := clientB.Do(req, http.StatusOK); err != nil {
 		t.Errorf("order B: expected no error, got: %v", err)
 	}
-	if !transportCalled {
+	if !transportCalled.Load() {
 		t.Error("order B: custom transport was not called")
 	}
 }
@@ -290,9 +291,9 @@ func TestClient_FullChainComposition(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	var transportCalled bool
+	var transportCalled atomic.Bool
 	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		transportCalled = true
+		transportCalled.Store(true)
 		return http.DefaultTransport.RoundTrip(r)
 	})
 
@@ -304,7 +305,7 @@ func TestClient_FullChainComposition(t *testing.T) {
 	}
 
 	for i, opts := range orders {
-		transportCalled = false
+		transportCalled.Store(false)
 
 		client, err := client.Build(opts...)
 		if err != nil {
@@ -319,7 +320,7 @@ func TestClient_FullChainComposition(t *testing.T) {
 		if err := client.Do(req, http.StatusOK); err != nil {
 			t.Errorf("order %d: expected no error, got: %v", i, err)
 		}
-		if !transportCalled {
+		if !transportCalled.Load() {
 			t.Errorf("order %d: custom transport was not called", i)
 		}
 	}

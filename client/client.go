@@ -25,11 +25,6 @@ type Client struct {
 
 // Build constructs a new [Client] by applying the given options.
 func Build(optFns ...Option) (*Client, error) {
-	client := &Client{
-		c:      http.DefaultClient,
-		logger: slog.Default(),
-	}
-
 	var opts options
 	for _, opt := range optFns {
 		if err := opt(&opts); err != nil {
@@ -37,20 +32,20 @@ func Build(optFns ...Option) (*Client, error) {
 		}
 	}
 
-	if opts.client != nil {
-		client.c = opts.client
+	if opts.client == nil {
+		opts.client = &http.Client{}
 	}
 
-	if opts.logger != nil {
-		client.logger = opts.logger
+	if opts.logger == nil {
+		opts.logger = slog.Default()
 	}
 
 	if opts.timeout != nil {
-		client.c.Timeout = *opts.timeout
+		opts.client.Timeout = *opts.timeout
 	}
 
 	if opts.noFollowRedirects {
-		client.c.CheckRedirect = func(*http.Request, []*http.Request) error {
+		opts.client.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
 	}
@@ -68,13 +63,19 @@ func Build(optFns ...Option) (*Client, error) {
 		transport = userAgent{value: opts.userAgent, base: transport}
 	}
 	if opts.throttle != nil {
-		rt, err := throttle.NewRoundTripper(opts.throttle.RPS, opts.throttle.Burst, func() *slog.Logger { return client.logger }, transport)
+		rt, err := throttle.NewRoundTripper(opts.throttle.RPS, opts.throttle.Burst, func() *slog.Logger { return opts.logger }, transport)
 		if err != nil {
 			return nil, fmt.Errorf("configuring throttle: %w", err)
 		}
 		transport = rt
 	}
-	client.c.Transport = transport
+
+	opts.client.Transport = transport
+
+	client := &Client{
+		c:      opts.client,
+		logger: opts.logger,
+	}
 
 	return client, nil
 }
@@ -183,6 +184,10 @@ func (c *Client) Request(ctx context.Context, reqURL *url.URL, method string, op
 // It's just a convenience method that wraps the public URL func.
 func (c *Client) URL(scheme, host, path string, opts ...URLOption) *url.URL {
 	return URL(scheme, host, path, opts...)
+}
+
+func (c *Client) InternalClient() *http.Client {
+	return c.c
 }
 
 // exec runs the request and injected function on success after validating the expected status code.
