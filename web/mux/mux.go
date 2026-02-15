@@ -35,7 +35,7 @@ type Middleware func(handler Handler) Handler
 
 // New creates an App with the given options. A no-op tracer and the
 // default slog logger are used unless overridden via options.
-func New(optFns ...func(*options)) *App {
+func New(optFns ...Option) *App {
 	var opts options
 	for _, opt := range optFns {
 		opt(&opts)
@@ -46,6 +46,7 @@ func New(optFns ...func(*options)) *App {
 	app := &App{
 		mux:      mux,
 		globalMW: opts.globalMW,
+		mw:       opts.mw,
 		log:      slog.Default(),
 		tracer:   noop.NewTracerProvider().Tracer("no-op tracer"),
 	}
@@ -65,10 +66,11 @@ func New(optFns ...func(*options)) *App {
 // and tracer but has an independent middleware stack.
 func (a *App) Group() *App {
 	return &App{
-		mux:    a.mux,
-		mw:     slices.Clone(a.mw),
-		log:    a.log,
-		tracer: a.tracer,
+		mux:      a.mux,
+		globalMW: a.globalMW,
+		mw:       slices.Clone(a.mw),
+		log:      a.log,
+		tracer:   a.tracer,
 	}
 }
 
@@ -76,15 +78,16 @@ func (a *App) Group() *App {
 // All routes registered on the returned App are prefixed with subRoute.
 func (a *App) Mount(subRoute string) *App {
 	return &App{
-		mux:    a.mux,
-		mw:     slices.Clone(a.mw),
-		log:    a.log,
-		group:  strings.TrimLeft(subRoute, "/"),
-		tracer: a.tracer,
+		mux:      a.mux,
+		globalMW: a.globalMW,
+		mw:       slices.Clone(a.mw),
+		log:      a.log,
+		group:    strings.TrimLeft(subRoute, "/"),
+		tracer:   a.tracer,
 	}
 }
 
-// Use appends the given middleware to this App's route-level middleware stack.
+// Use appends the given middleware to the underlying mw stack.
 func (a *App) Use(mw ...Middleware) {
 	a.mw = append(a.mw, mw...)
 }
@@ -176,17 +179,6 @@ func (a *App) handleNoMiddleware(method, group, path string, handler Handler) {
 	a.mux.HandleFunc(pattern, h)
 }
 
-// wrap middleware around the handler and execute in order given.
-func wrap(mw []Middleware, handler Handler) Handler {
-	for _, mwFn := range slices.Backward(mw) {
-		if mwFn != nil {
-			handler = mwFn(handler)
-		}
-	}
-
-	return handler
-}
-
 // startSpan initializes the request by adding a span and writing
 // otel-related info into the response writer for the response.
 func (a *App) startSpan(w http.ResponseWriter, r *http.Request) (context.Context, trace.Span) {
@@ -196,4 +188,15 @@ func (a *App) startSpan(w http.ResponseWriter, r *http.Request) (context.Context
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 
 	return ctx, span
+}
+
+// wrap middleware around the handler and execute in order given.
+func wrap(mw []Middleware, handler Handler) Handler {
+	for _, mwFn := range slices.Backward(mw) {
+		if mwFn != nil {
+			handler = mwFn(handler)
+		}
+	}
+
+	return handler
 }
