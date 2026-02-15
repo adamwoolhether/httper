@@ -2,7 +2,6 @@ package mux_test
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,7 +35,7 @@ func TestWithMiddleware_AutoGlobalCORS(t *testing.T) {
 }
 
 func TestWithMiddleware_AutoGlobalCSRF(t *testing.T) {
-	log := slog.Default()
+	log, _ := newTestLogger(t)
 	app := mux.New(mux.WithMiddleware(middleware.CSRF(log)))
 	app.Get("/safe", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
@@ -60,7 +59,7 @@ func TestWithMiddleware_AutoGlobalCSRF(t *testing.T) {
 }
 
 func TestWithMiddleware_SortsRoute(t *testing.T) {
-	log := slog.Default()
+	log, _ := newTestLogger(t)
 
 	// Pass Logger, Errors, Panics in reverse priority order.
 	// WithMiddleware should sort them: Logger(3), Errors(4), Panics(100).

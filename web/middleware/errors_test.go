@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestErrors_NoError(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(&discardWriter{}, nil))
+	log, _ := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
@@ -34,7 +33,7 @@ func TestErrors_NoError(t *testing.T) {
 }
 
 func TestErrors_AppError(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(&discardWriter{}, nil))
+	log, _ := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.New(http.StatusBadRequest, fmt.Errorf("invalid input"))
@@ -59,7 +58,7 @@ func TestErrors_AppError(t *testing.T) {
 }
 
 func TestErrors_InternalError(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(&discardWriter{}, nil))
+	log, _ := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.NewInternal(fmt.Errorf("secret db error"))
@@ -85,7 +84,7 @@ func TestErrors_InternalError(t *testing.T) {
 }
 
 func TestErrors_FieldErrors(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(&discardWriter{}, nil))
+	log, _ := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.NewFieldsError("email", fmt.Errorf("required"))
@@ -112,7 +111,7 @@ func TestErrors_FieldErrors(t *testing.T) {
 }
 
 func TestErrors_PlainError(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(&discardWriter{}, nil))
+	log, _ := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("unexpected failure")
@@ -137,8 +136,4 @@ func TestErrors_PlainError(t *testing.T) {
 	}
 }
 
-// discardWriter is an io.Writer that discards all data.
-type discardWriter struct{}
-
-func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 

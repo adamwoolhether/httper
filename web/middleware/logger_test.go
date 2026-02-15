@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,8 +15,7 @@ import (
 )
 
 func TestLogger(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, nil))
+	log, buf := newTestLogger(t)
 
 	mw := middleware.Logger(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -48,8 +48,7 @@ func TestLogger(t *testing.T) {
 }
 
 func TestLogger_WithQuery(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, nil))
+	log, buf := newTestLogger(t)
 
 	mw := middleware.Logger(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -69,8 +68,7 @@ func TestLogger_WithQuery(t *testing.T) {
 }
 
 func TestLogger_StatusCode(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, nil))
+	log, buf := newTestLogger(t)
 
 	mw := middleware.Logger(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -91,4 +89,15 @@ func TestLogger_StatusCode(t *testing.T) {
 	if !strings.Contains(output, "since") {
 		t.Fatalf("expected since in log output: %s", output)
 	}
+}
+
+func newTestLogger(t *testing.T) (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	t.Cleanup(func() {
+		if os.Getenv("VERBOSE") != "" {
+			t.Log(buf.String())
+		}
+	})
+	return log, &buf
 }

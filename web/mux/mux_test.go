@@ -1,13 +1,20 @@
 package mux_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/adamwoolhether/httper/web"
+	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
 	"github.com/adamwoolhether/httper/web/mux"
 )
@@ -383,4 +390,189 @@ func TestApp_HandlerError(t *testing.T) {
 		t.Fatalf("GET /err: %v", err)
 	}
 	resp.Body.Close()
+}
+
+// newFullStackApp creates an App wired with Logger → Errors → Panics and a
+// captured log buffer for integration assertions.
+func newFullStackApp(t *testing.T) (*mux.App, *httptest.Server, func() string) {
+	t.Helper()
+	log, buf := newTestLogger(t)
+	app := mux.New(mux.WithMiddleware(
+		middleware.Logger(log),
+		middleware.Errors(log),
+		middleware.Panics(),
+	))
+	srv := httptest.NewServer(app)
+	t.Cleanup(srv.Close)
+	return app, srv, buf.String
+}
+
+func TestApp_FullStack_Success(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	type payload struct {
+		Msg string `json:"msg"`
+	}
+	app.Get("/ok", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return web.RespondJSON(ctx, w, http.StatusOK, payload{Msg: "hello"})
+	})
+
+	resp, err := http.Get(srv.URL + "/ok")
+	if err != nil {
+		t.Fatalf("GET /ok: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var got payload
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Msg != "hello" {
+		t.Fatalf("body msg = %q, want %q", got.Msg, "hello")
+	}
+
+	logs := logOutput()
+	if !strings.Contains(logs, "request started") {
+		t.Fatal("log missing 'request started'")
+	}
+	if !strings.Contains(logs, "request completed") {
+		t.Fatal("log missing 'request completed'")
+	}
+	if !strings.Contains(logs, "statusCode=200") {
+		t.Fatalf("log missing statusCode=200, got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_AppError(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	app.Get("/bad", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.New(http.StatusBadRequest, fmt.Errorf("bad input"))
+	})
+
+	resp, err := http.Get(srv.URL + "/bad")
+	if err != nil {
+		t.Fatalf("GET /bad: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var m map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if m["message"] != "bad input" {
+		t.Fatalf("message = %v, want %q", m["message"], "bad input")
+	}
+
+	logs := logOutput()
+	if !strings.Contains(logs, "statusCode=400") {
+		t.Fatalf("log missing statusCode=400, got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_InternalError(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	app.Get("/internal", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.NewInternal(fmt.Errorf("secret db error"))
+	})
+
+	resp, err := http.Get(srv.URL + "/internal")
+	if err != nil {
+		t.Fatalf("GET /internal: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+
+	var m map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if m["message"] != http.StatusText(http.StatusInternalServerError) {
+		t.Fatalf("message = %v, want %q", m["message"], http.StatusText(http.StatusInternalServerError))
+	}
+
+	logs := logOutput()
+	if !strings.Contains(logs, "statusCode=500") {
+		t.Fatalf("log missing statusCode=500, got:\n%s", logs)
+	}
+	if !strings.Contains(logs, "secret db error") {
+		t.Fatalf("log missing original error 'secret db error', got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_Panic(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	app.Get("/panic", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic("boom")
+	})
+
+	resp, err := http.Get(srv.URL + "/panic")
+	if err != nil {
+		t.Fatalf("GET /panic: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+
+	logs := logOutput()
+	if !strings.Contains(logs, "PANIC") {
+		t.Fatalf("log missing PANIC, got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_FieldErrors(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	app.Get("/fields", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.NewFieldsError("email", fmt.Errorf("required"))
+	})
+
+	resp, err := http.Get(srv.URL + "/fields")
+	if err != nil {
+		t.Fatalf("GET /fields: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+	}
+
+	var arr []map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&arr); err != nil {
+		t.Fatalf("body should be JSON array: %v", err)
+	}
+	if len(arr) != 1 || arr[0]["field"] != "email" {
+		t.Fatalf("unexpected body: %v", arr)
+	}
+
+	logs := logOutput()
+	if !strings.Contains(logs, "statusCode=422") {
+		t.Fatalf("log missing statusCode=422, got:\n%s", logs)
+	}
+}
+
+func newTestLogger(t *testing.T) (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	t.Cleanup(func() {
+		if os.Getenv("VERBOSE") != "" {
+			t.Log(buf.String())
+		}
+	})
+	return log, &buf
 }
