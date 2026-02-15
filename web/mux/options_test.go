@@ -35,8 +35,7 @@ func TestWithMiddleware_AutoGlobalCORS(t *testing.T) {
 }
 
 func TestWithMiddleware_AutoGlobalCSRF(t *testing.T) {
-	log, _ := newTestLogger(t)
-	app := mux.New(mux.WithMiddleware(middleware.CSRF(log)))
+	app := mux.New(mux.WithMiddleware(middleware.CSRF()))
 	app.Get("/safe", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))

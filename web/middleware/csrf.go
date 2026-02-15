@@ -2,16 +2,16 @@ package middleware
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"net/http"
 
 	"github.com/adamwoolhether/httper/web/mux"
 )
 
 // CSRF uses the standard library CrossOriginProtection to prevent CSRF attacks.
-func CSRF(logger *slog.Logger, allowedOrigins ...string) mux.Middleware {
+func CSRF(allowedOrigins ...string) mux.Middleware {
 	cop := http.NewCrossOriginProtection()
-	cop.SetDenyHandler(errHandler(logger))
+	cop.SetDenyHandler(errHandler())
 	for _, origin := range allowedOrigins {
 		if err := cop.AddTrustedOrigin(origin); err != nil {
 			panic(err)
@@ -39,13 +39,11 @@ func CSRF(logger *slog.Logger, allowedOrigins ...string) mux.Middleware {
 	return m
 }
 
-func errHandler(logger *slog.Logger) http.HandlerFunc {
+func errHandler() http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		mux.SetStatusCode(r.Context(), http.StatusForbidden)
 
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-
-		logger.Warn("csrf middleware", "error", "cross origin protection check failed")
+		http.Error(w, fmt.Errorf("csrf: %s", http.StatusText(http.StatusForbidden)).Error(), http.StatusForbidden)
 	}
 
 	return f

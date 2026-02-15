@@ -45,6 +45,9 @@ func TestLogger(t *testing.T) {
 	if !strings.Contains(output, "127.0.0.1:1234") {
 		t.Fatalf("expected remoteaddr in log output: %s", output)
 	}
+	if !strings.Contains(output, "trace_id=") {
+		t.Fatalf("expected traceID in log output: %s", output)
+	}
 }
 
 func TestLogger_WithQuery(t *testing.T) {

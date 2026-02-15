@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/adamwoolhether/httper/web/errs"
@@ -33,7 +34,7 @@ func TestErrors_NoError(t *testing.T) {
 }
 
 func TestErrors_AppError(t *testing.T) {
-	log, _ := newTestLogger(t)
+	log, buf := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.New(http.StatusBadRequest, fmt.Errorf("invalid input"))
@@ -55,10 +56,14 @@ func TestErrors_AppError(t *testing.T) {
 	if m["message"] != "invalid input" {
 		t.Fatalf("message = %v, want %q", m["message"], "invalid input")
 	}
+
+	if !strings.Contains(buf.String(), "trace_id=") {
+		t.Fatalf("expected traceID in error log output: %s", buf.String())
+	}
 }
 
 func TestErrors_InternalError(t *testing.T) {
-	log, _ := newTestLogger(t)
+	log, buf := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.NewInternal(fmt.Errorf("secret db error"))
@@ -80,6 +85,10 @@ func TestErrors_InternalError(t *testing.T) {
 	// Internal errors should have their message obscured.
 	if m["message"] != http.StatusText(http.StatusInternalServerError) {
 		t.Fatalf("message = %v, want %q", m["message"], http.StatusText(http.StatusInternalServerError))
+	}
+
+	if !strings.Contains(buf.String(), "trace_id=") {
+		t.Fatalf("expected traceID in error log output: %s", buf.String())
 	}
 }
 
@@ -111,7 +120,7 @@ func TestErrors_FieldErrors(t *testing.T) {
 }
 
 func TestErrors_PlainError(t *testing.T) {
-	log, _ := newTestLogger(t)
+	log, buf := newTestLogger(t)
 	mw := middleware.Errors(log)
 	handler := mw(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("unexpected failure")
@@ -133,6 +142,10 @@ func TestErrors_PlainError(t *testing.T) {
 	// Plain error should be obscured just like internal errors.
 	if m["message"] != http.StatusText(http.StatusInternalServerError) {
 		t.Fatalf("message = %v, want %q", m["message"], http.StatusText(http.StatusInternalServerError))
+	}
+
+	if !strings.Contains(buf.String(), "trace_id=") {
+		t.Fatalf("expected traceID in error log output: %s", buf.String())
 	}
 }
 

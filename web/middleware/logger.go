@@ -17,16 +17,18 @@ func Logger(log *slog.Logger) mux.Middleware {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			v := mux.GetValues(ctx)
 
+			reqLog := log.With("trace_id", v.TraceID)
+
 			path := r.URL.Path
 			if r.URL.RawQuery != "" {
 				path = fmt.Sprintf("%s?%s", path, r.URL.RawQuery)
 			}
 
-			log.Info("request started", "method", r.Method, "path", path, "remoteaddr", r.RemoteAddr)
+			reqLog.Info("request started", "method", r.Method, "path", path, "remoteaddr", r.RemoteAddr)
 
 			err := handler(ctx, w, r)
 
-			log.Info("request completed", "method", r.Method, "path", path, "remoteaddr", r.RemoteAddr, "statusCode", v.StatusCode, "since", time.Since(v.Now).String())
+			reqLog.Info("request completed", "method", r.Method, "path", path, "remoteaddr", r.RemoteAddr, "statusCode", v.StatusCode, "since", time.Since(v.Now).String())
 
 			return err
 		}

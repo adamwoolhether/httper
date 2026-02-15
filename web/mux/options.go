@@ -3,6 +3,7 @@ package mux
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -19,6 +20,7 @@ type options struct {
 	staticFS   Handler
 	staticPath string
 	tracer     trace.Tracer
+	logger     *slog.Logger
 	globalMW   []Middleware
 	mw         []Middleware
 }
@@ -82,6 +84,13 @@ func WithMiddleware(mw ...Middleware) Option {
 func WithTracer(tracer trace.Tracer) Option {
 	return Option(func(opts *options) {
 		opts.tracer = tracer
+	})
+}
+
+// WithLogger sets the logger used by the App for internal errors.
+func WithLogger(log *slog.Logger) Option {
+	return Option(func(opts *options) {
+		opts.logger = log
 	})
 }
 

@@ -16,6 +16,8 @@ const (
 	base ctxKey = iota + 1
 )
 
+const emptyUUID = "00000000-0000-0000-0000-000000000000"
+
 // BaseValues represents values that are shared across all requests for logging.
 type BaseValues struct {
 	TraceID    string
@@ -39,7 +41,7 @@ func GetValues(ctx context.Context) *BaseValues {
 	v, ok := ctx.Value(base).(*BaseValues)
 	if !ok {
 		return &BaseValues{
-			TraceID: uuid.Nil.String(),
+			TraceID: emptyUUID,
 			Tracer:  noop.NewTracerProvider().Tracer(""),
 			Now:     time.Now(),
 		}

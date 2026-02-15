@@ -397,11 +397,14 @@ func TestApp_HandlerError(t *testing.T) {
 func newFullStackApp(t *testing.T) (*mux.App, *httptest.Server, func() string) {
 	t.Helper()
 	log, buf := newTestLogger(t)
-	app := mux.New(mux.WithMiddleware(
-		middleware.Logger(log),
-		middleware.Errors(log),
-		middleware.Panics(),
-	))
+	app := mux.New(
+		mux.WithLogger(log),
+		mux.WithMiddleware(
+			middleware.Logger(log),
+			middleware.Errors(log),
+			middleware.Panics(),
+		),
+	)
 	srv := httptest.NewServer(app)
 	t.Cleanup(srv.Close)
 	return app, srv, buf.String
@@ -445,6 +448,9 @@ func TestApp_FullStack_Success(t *testing.T) {
 	if !strings.Contains(logs, "statusCode=200") {
 		t.Fatalf("log missing statusCode=200, got:\n%s", logs)
 	}
+	if !strings.Contains(logs, "trace_id=") {
+		t.Fatalf("log missing traceID, got:\n%s", logs)
+	}
 }
 
 func TestApp_FullStack_AppError(t *testing.T) {
@@ -475,6 +481,9 @@ func TestApp_FullStack_AppError(t *testing.T) {
 	logs := logOutput()
 	if !strings.Contains(logs, "statusCode=400") {
 		t.Fatalf("log missing statusCode=400, got:\n%s", logs)
+	}
+	if !strings.Contains(logs, "trace_id=") {
+		t.Fatalf("log missing traceID, got:\n%s", logs)
 	}
 }
 
@@ -509,6 +518,9 @@ func TestApp_FullStack_InternalError(t *testing.T) {
 	}
 	if !strings.Contains(logs, "secret db error") {
 		t.Fatalf("log missing original error 'secret db error', got:\n%s", logs)
+	}
+	if !strings.Contains(logs, "trace_id=") {
+		t.Fatalf("log missing traceID, got:\n%s", logs)
 	}
 }
 
@@ -563,6 +575,37 @@ func TestApp_FullStack_FieldErrors(t *testing.T) {
 	logs := logOutput()
 	if !strings.Contains(logs, "statusCode=422") {
 		t.Fatalf("log missing statusCode=422, got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_TraceIDInLogs(t *testing.T) {
+	app, srv, logOutput := newFullStackApp(t)
+
+	app.Get("/trace", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	resp, err := http.Get(srv.URL + "/trace")
+	if err != nil {
+		t.Fatalf("GET /trace: %v", err)
+	}
+	resp.Body.Close()
+
+	logs := logOutput()
+
+	if strings.Contains(logs, "trace_id=00000000000000000000000000000000") {
+		t.Fatalf("trace_id should not be zero OTel trace ID, got:\n%s", logs)
+	}
+
+	// Both "request started" and "request completed" should have traceID.
+	lines := strings.Split(logs, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "request started") || strings.Contains(line, "request completed") {
+			if !strings.Contains(line, "trace_id=") {
+				t.Fatalf("log line missing traceID: %s", line)
+			}
+		}
 	}
 }
 

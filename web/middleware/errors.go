@@ -30,7 +30,8 @@ func Errors(log *slog.Logger) mux.Middleware {
 				appErr = errs.NewInternal(err)
 			}
 
-			log.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
+			reqLog := log.With("trace_id", mux.GetValues(ctx).TraceID)
+			reqLog.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
 
 			if appErr.InnerErr { // after logging, obscure the internal error from public view.
 				appErr.Message = http.StatusText(appErr.Code)

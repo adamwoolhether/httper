@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -23,7 +24,7 @@ type App struct {
 	globalMW []Middleware
 	mw       []Middleware
 	group    string
-	log      *slog.Logger
+	logger   *slog.Logger
 	tracer   trace.Tracer
 }
 
@@ -40,6 +41,12 @@ func New(optFns ...Option) *App {
 	for _, opt := range optFns {
 		opt(&opts)
 	}
+	if opts.logger == nil {
+		opts.logger = slog.Default()
+	}
+	if opts.tracer == nil {
+		opts.tracer = noop.NewTracerProvider().Tracer("no-op tracer")
+	}
 
 	mux := http.NewServeMux()
 
@@ -47,12 +54,8 @@ func New(optFns ...Option) *App {
 		mux:      mux,
 		globalMW: opts.globalMW,
 		mw:       opts.mw,
-		log:      slog.Default(),
-		tracer:   noop.NewTracerProvider().Tracer("no-op tracer"),
-	}
-
-	if opts.tracer != nil {
-		app.tracer = opts.tracer
+		logger:   opts.logger,
+		tracer:   opts.tracer,
 	}
 
 	if opts.staticFS != nil {
@@ -69,7 +72,7 @@ func (a *App) Group() *App {
 		mux:      a.mux,
 		globalMW: a.globalMW,
 		mw:       slices.Clone(a.mw),
-		log:      a.log,
+		logger:   a.logger,
 		tracer:   a.tracer,
 	}
 }
@@ -81,7 +84,7 @@ func (a *App) Mount(subRoute string) *App {
 		mux:      a.mux,
 		globalMW: a.globalMW,
 		mw:       slices.Clone(a.mw),
-		log:      a.log,
+		logger:   a.logger,
 		group:    strings.TrimLeft(subRoute, "/"),
 		tracer:   a.tracer,
 	}
@@ -126,7 +129,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wrapped := wrap(a.globalMW, serveHTTP)
 
 	if err := wrapped(r.Context(), w, r); err != nil {
-		a.log.Error("web", "serve http", err)
+		a.logger.Error("mux", "serve http", err)
 	}
 }
 
@@ -138,15 +141,21 @@ func (a *App) handle(method, group, path string, handler Handler, mw ...Middlewa
 		ctx, span := a.startSpan(w, r)
 		defer span.End()
 
+		traceID := span.SpanContext().TraceID().String()
+		if !span.SpanContext().TraceID().IsValid() {
+			traceID = uuid.New().String()
+		}
+
 		v := BaseValues{
-			TraceID: span.SpanContext().TraceID().String(),
+			TraceID: traceID,
 			Now:     time.Now().UTC(),
 			Tracer:  a.tracer,
 		}
+
 		r = r.WithContext(setValues(ctx, &v))
 
 		if err := handler(r.Context(), w, r); err != nil {
-			a.log.Error("web", "handle", err)
+			a.logger.Error("mux", "handle", err)
 		}
 	}
 
@@ -165,7 +174,7 @@ func (a *App) handle(method, group, path string, handler Handler, mw ...Middlewa
 func (a *App) handleNoMiddleware(method, group, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
 		if err := handler(r.Context(), w, r); err != nil {
-			a.log.Error("web", "handle no mw", err)
+			a.logger.Error("mux", "handle no mw", err)
 		}
 	}
 
@@ -182,7 +191,7 @@ func (a *App) handleNoMiddleware(method, group, path string, handler Handler) {
 // startSpan initializes the request by adding a span and writing
 // otel-related info into the response writer for the response.
 func (a *App) startSpan(w http.ResponseWriter, r *http.Request) (context.Context, trace.Span) {
-	ctx, span := a.tracer.Start(r.Context(), "web.handler")
+	ctx, span := a.tracer.Start(r.Context(), "mux.handler")
 	span.SetAttributes(attribute.String("path", r.RequestURI))
 
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
