@@ -9,6 +9,8 @@ on:
 jobs:
   checks:
     name: Checks (${{ matrix.module }})
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
