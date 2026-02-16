@@ -15,7 +15,7 @@ test:
 	CGO_ENABLED=1 go -C web tool gotest -v -race -count=1 ./...
 
 test-e2e:
-	CGO_ENABLED=1 go -C e2e tool gotest -v -race -count=1 -tags=integration ./...
+	CGO_ENABLED=1 VERBOSE=1 go -C e2e tool gotest -v -race -count=1 -tags=integration ./...
 
 test-integration:
 	CGO_ENABLED=0 go -C client tool gotest -v -race -count=1 -tags=integration ./...
@@ -44,6 +44,10 @@ docs-client:
 	@echo "Starting pkgsite at http://localhost:6060/github.com/adamwoolhether/httper/client"
 	@open http://localhost:6060/github.com/adamwoolhether/httper/client &
 	go -C client tool pkgsite -http=localhost:6060
+docs-web:
+	@echo "Starting pkgsite at http://localhost:6060/github.com/adamwoolhether/httper/web"
+	@open http://localhost:6060/github.com/adamwoolhether/httper/web &
+	go -C web tool pkgsite -http=localhost:6060
 # ######################################################################################################################
 # Modules
 # ######################################################################################################################
