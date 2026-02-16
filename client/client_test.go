@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -221,9 +222,9 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	var transportCalled bool
+	var transportCalled atomic.Bool
 	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		transportCalled = true
+		transportCalled.Store(true)
 		return http.DefaultTransport.RoundTrip(r)
 	})
 
@@ -244,12 +245,12 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 	if err := clientA.Do(req, http.StatusOK); err != nil {
 		t.Errorf("order A: expected no error, got: %v", err)
 	}
-	if !transportCalled {
+	if !transportCalled.Load() {
 		t.Error("order A: custom transport was not called")
 	}
 
 	// Order B: UserAgent first, then Transport.
-	transportCalled = false
+	transportCalled.Store(false)
 	clientB, err := client.Build(
 		client.WithUserAgent(expectedUA),
 		client.WithTransport(custom),
@@ -266,7 +267,7 @@ func TestClient_OptionOrderIndependence(t *testing.T) {
 	if err := clientB.Do(req, http.StatusOK); err != nil {
 		t.Errorf("order B: expected no error, got: %v", err)
 	}
-	if !transportCalled {
+	if !transportCalled.Load() {
 		t.Error("order B: custom transport was not called")
 	}
 }
@@ -290,9 +291,9 @@ func TestClient_FullChainComposition(t *testing.T) {
 		t.Fatalf("failed to parse test server URL: %v", err)
 	}
 
-	var transportCalled bool
+	var transportCalled atomic.Bool
 	custom := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		transportCalled = true
+		transportCalled.Store(true)
 		return http.DefaultTransport.RoundTrip(r)
 	})
 
@@ -304,7 +305,7 @@ func TestClient_FullChainComposition(t *testing.T) {
 	}
 
 	for i, opts := range orders {
-		transportCalled = false
+		transportCalled.Store(false)
 
 		client, err := client.Build(opts...)
 		if err != nil {
@@ -319,7 +320,7 @@ func TestClient_FullChainComposition(t *testing.T) {
 		if err := client.Do(req, http.StatusOK); err != nil {
 			t.Errorf("order %d: expected no error, got: %v", i, err)
 		}
-		if !transportCalled {
+		if !transportCalled.Load() {
 			t.Errorf("order %d: custom transport was not called", i)
 		}
 	}
@@ -2002,5 +2003,69 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 
 	if err := r.Wait(); err == nil {
 		t.Fatal("expected error from Wait when WithBatch passed to Result.Add, got nil")
+	}
+}
+
+func TestClient_Do_AuthFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantAuth   bool
+	}{
+		{"401 Unauthorized", http.StatusUnauthorized, true},
+		{"403 Forbidden", http.StatusForbidden, true},
+		{"404 Not Found", http.StatusNotFound, false},
+		{"500 Internal Server Error", http.StatusInternalServerError, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.statusCode)
+				_, _ = w.Write([]byte("error body"))
+			}))
+			defer ts.Close()
+
+			testURL, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("parsing test server URL: %v", err)
+			}
+
+			c, err := client.Build()
+			if err != nil {
+				t.Fatalf("creating client: %v", err)
+			}
+
+			req, err := c.Request(t.Context(), testURL, http.MethodGet)
+			if err != nil {
+				t.Fatalf("creating request: %v", err)
+			}
+
+			err = c.Do(req, http.StatusOK)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if !errors.Is(err, client.ErrUnexpectedStatusCode) {
+				t.Errorf("expected ErrUnexpectedStatusCode, got: %v", err)
+			}
+
+			if got := errors.Is(err, client.ErrAuthFailure); got != tc.wantAuth {
+				t.Errorf("errors.Is(err, ErrAuthFailure) = %v, want %v", got, tc.wantAuth)
+			}
+
+			var statusErr *client.UnexpectedStatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected *UnexpectedStatusError, got: %T: %v", err, err)
+			}
+
+			if statusErr.StatusCode != tc.statusCode {
+				t.Errorf("expected status %d, got %d", tc.statusCode, statusErr.StatusCode)
+			}
+
+			if statusErr.Body != "error body" {
+				t.Errorf("expected body %q, got %q", "error body", statusErr.Body)
+			}
+		})
 	}
 }

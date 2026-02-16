@@ -8,8 +8,17 @@ on:
 
 jobs:
   checks:
-    name: Checks
+    name: Checks (${{ matrix.module }})
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ['client', 'web']
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -17,14 +26,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: Run Checks
-        run: |
-          (make lint) &
-          pid_lint=$!
-          (make vuln) &
-          pid_vuln=$!
-
-          wait $pid_lint || exit 1
-          wait $pid_vuln || exit 1
-      - name: Run Tests
-        run: make test
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: Vet
+        run: CGO_ENABLED=0 go vet ./...
+      - name: Staticcheck
+        run: go tool staticcheck -checks=all ./...
+      - name: Govulncheck
+        run: go tool govulncheck ./...
+      - name: Test
+        run: CGO_ENABLED=1 go tool gotest -v -race -count=1 ./...
