@@ -6,14 +6,14 @@
 This is how I've been constructing HTTP services for a while now, or some variation thereof. Finally decided to make it into a reusable, shared repo.   
 And now, the elevator pitch (to myself):
 
-A lightweight Go toolkit for HTTP — ships as two independent modules:
+A lightweight Go toolkit for HTTP, shipped as two independent modules:
 
-- **`client`** — HTTP client wrapper with functional options, streaming file downloads, async batch downloads, and token-bucket rate limiting.
-- **`web`** — Mux, middleware, server lifecycle, request/response helpers, and structured errors built on `net/http`.
+- **`client`**: HTTP client wrapper with functional options, streaming file downloads, async batch downloads, and token-bucket rate limiting.
+- **`web`**: Mux, middleware, server lifecycle, request/response helpers, and structured errors built on `net/http`.
 
-Each module is versioned and imported independently — use one, the other, or both. The mux and server packages are also independent of each other: you can use the mux with your own server, or wrap any `http.Handler` with the server for signal-driven lifecycle management.
+Each module is versioned and imported independently. Use one, the other, or both. The mux and server packages are also independent of each other: you can use the mux with your own server, or wrap any `http.Handler` with the server for signal-driven lifecycle management.
 
-More often than not, HTTP clients and servers are highly use-case specific — I could never find myself to like other highly engineered solutions.
+More often than not, HTTP clients and servers are highly use-case specific; I could never find myself to like other highly engineered solutions.
 This is meant to be lightweight, a mere wrapper around the standard library.
 
 ## Contents
@@ -21,11 +21,11 @@ This is meant to be lightweight, a mere wrapper around the standard library.
 - [Install](#install)
 - [Client](#client)
   - [Quick Start](#quick-start)
-  - [Features](#features) — [JSON](#json-requests) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting)
+  - [Features](#features): [JSON](#json-requests) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting)
   - [Client Options Reference](#client-options-reference)
 - [Web](#web)
   - [Quick Start](#quick-start-1)
-  - [Routing](#routing) — [Groups & Mounts](#groups--mounts)
+  - [Routing](#routing): [Groups & Mounts](#groups--mounts)
   - [Server](#server)
   - [Middleware](#middleware)
   - [Request & Response Helpers](#request--response-helpers)
@@ -61,7 +61,7 @@ import (
 )
 
 func main() {
-	// Defaults to http defaults out of the box — optionally supply your own
+	// Defaults to http defaults out of the box. Optionally supply your own
 	// http.Client or http.RoundTripper for full control.
 	c, err := client.Build(
 		client.WithTimeout(10 * time.Second),
@@ -321,7 +321,7 @@ api.Use(authMiddleware)
 api.Get("/users", listUsers)
 api.Post("/users", createUser)
 
-// Public group — no auth middleware
+// Public group: no auth middleware
 pub := app.Group()
 pub.Get("/health", healthCheck)
 ```
@@ -348,7 +348,7 @@ if err := srv.Run(); err != nil {
 }
 ```
 
-`Shutdown(ctx)` can also be called directly — the caller's context controls the deadline.
+`Shutdown(ctx)` can also be called directly; the caller's context controls the deadline.
 
 ### Middleware
 
@@ -369,7 +369,7 @@ Global middleware runs on every request (via `ServeHTTP`). Route middleware runs
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
 middleware.CSRF(origins...)            // trusted origins (uses net/http.CrossOriginProtection)
 middleware.Logger(log)                 // *slog.Logger
-middleware.Errors(log)                 // *slog.Logger — catches *errs.Error and FieldErrors
+middleware.Errors(log)                 // *slog.Logger; catches *errs.Error and FieldErrors
 middleware.Panics()                    // recovers from panics
 ```
 
@@ -410,11 +410,11 @@ The `errs` package provides typed errors that map to HTTP status codes.
 
 ```go
 errs.New(http.StatusNotFound, err)           // app-level error with status code
-errs.NewInternal(err)                        // 500 — message hidden from clients
+errs.NewInternal(err)                        // 500: message hidden from clients
 errs.NewFieldsError("email", err)            // field validation error
 ```
 
-`FieldErrors` is a slice of `FieldError{Field, Err}` — the `Errors` middleware automatically responds with 422 when it encounters one.
+`FieldErrors` is a slice of `FieldError{Field, Err}`. The `Errors` middleware automatically responds with 422 when it encounters one.
 
 ### Web Options Reference
 
