@@ -14,8 +14,6 @@ var (
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 	// ErrDownloadCancelled indicates the download was cancelled via context cancellation.
 	ErrDownloadCancelled = errors.New("download cancelled")
-	// ErrGroupShutdown indicates the [Queue] was shut down before this download could start.
-	ErrGroupShutdown = errors.New("group is shut down")
 )
 
 // Error wraps a sentinel error with additional detail about what went wrong.
@@ -47,3 +45,11 @@ func (r *contextReader) Read(p []byte) (int, error) {
 		return r.r.Read(p)
 	}
 }
+
+// closedCh is a pre-closed channel reused for immediately-done Results,
+// avoiding a fresh make+close on every Add error path.
+var closedCh = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()

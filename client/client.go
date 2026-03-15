@@ -136,7 +136,7 @@ func (c *Client) Download(req *http.Request, expCode int, destPath string, optFn
 	return c.exec(req, expCode, dlFunc)
 }
 
-// DownloadAsync starts an asynchronous download managed by a Queue.
+// DownloadAsync starts an asynchronous download managed by a queue.
 // If no WithBatch option is provided, an implicit unlimited queue is created.
 // The returned AsyncResult can be used to track or cancel this individual download,
 // wait on the entire group, or add more downloads to the same batch via Download.

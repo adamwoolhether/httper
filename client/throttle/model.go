@@ -11,7 +11,7 @@ import (
 var (
 	// ErrMustNotBeZero indicates that RPS and burst must be positive.
 	ErrMustNotBeZero = errors.New("must be greater than zero")
-	// ErrWaitingFailed indicates the rate limiter's Wait call failed.
+	// ErrWaitingFailed indicates the rate limiter's wait call failed.
 	ErrWaitingFailed = errors.New("limiter waiting failed")
 	// ErrContextEnded indicates the request context expired before or after the rate-limit wait.
 	ErrContextEnded = errors.New("throttle context ended")

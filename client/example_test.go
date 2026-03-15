@@ -203,7 +203,7 @@ func ExampleClient_DownloadAsync_batch() {
 	reqB, _ := client.Request(context.Background(), uB, http.MethodGet)
 	r.Add(reqB, http.StatusOK, destB)
 
-	// Wait for all downloads to complete.
+	// wait for all downloads to complete.
 	if err := r.Wait(); err != nil {
 		fmt.Println("batch error:", err)
 		return
