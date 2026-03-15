@@ -59,6 +59,11 @@ func (r *Result) Cancel() {
 	r.cancel()
 }
 
+// CancelAll cancels every download in the queue.
+func (r *Result) CancelAll() {
+	r.group.closeOnce.Do(func() { close(r.group.cancelAll) })
+}
+
 // recordErr appends err to the group's error slice under the mutex.
 func (g *Queue) recordErr(err error) {
 	g.mu.Lock()

@@ -235,6 +235,36 @@ func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
 	}
 }
 
+func TestResult_CancelAll(t *testing.T) {
+	g := newQueue(0)
+
+	started := make(chan struct{}, 3)
+
+	work := func(ctx context.Context) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	r1 := g.Start(t.Context(), work, nil)
+	r2 := g.Start(t.Context(), work, nil)
+	r3 := g.Start(t.Context(), work, nil)
+
+	// Wait for all three goroutines to be running.
+	for range 3 {
+		<-started
+	}
+
+	// Cancel everything through any single result.
+	r1.CancelAll()
+
+	for _, r := range []*Result{r1, r2, r3} {
+		if err := r.Err(); !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	}
+}
+
 func TestGroup_Wait_NilWhenAllSucceed(t *testing.T) {
 	g := newQueue(0)
 
