@@ -14,8 +14,6 @@ var (
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 	// ErrDownloadCancelled indicates the download was cancelled via context cancellation.
 	ErrDownloadCancelled = errors.New("download cancelled")
-	// ErrGroupShutdown indicates the [Queue] was shut down before this download could start.
-	ErrGroupShutdown = errors.New("group is shut down")
 )
 
 // Error wraps a sentinel error with additional detail about what went wrong.

@@ -235,35 +235,6 @@ func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
 	}
 }
 
-func TestGroup_Shutdown(t *testing.T) {
-	g := newQueue(1)
-
-	// Fill the semaphore slot with a task that blocks on a channel.
-	release := make(chan struct{})
-	g.Start(t.Context(), func(ctx context.Context) error {
-		<-release
-		return nil
-	}, nil)
-
-	// Give goroutine time to acquire the slot.
-	time.Sleep(20 * time.Millisecond)
-
-	g.Shutdown()
-
-	// Release the first task so the second can acquire the semaphore.
-	close(release)
-
-	r := g.Start(t.Context(), func(ctx context.Context) error {
-		t.Error("work function should not have run after shutdown")
-		return nil
-	}, nil)
-
-	err := r.Err()
-	if !errors.Is(err, ErrGroupShutdown) {
-		t.Errorf("expected ErrGroupShutdown, got %v", err)
-	}
-}
-
 func TestGroup_Wait_NilWhenAllSucceed(t *testing.T) {
 	g := newQueue(0)
 
