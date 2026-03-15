@@ -45,3 +45,11 @@ func (r *contextReader) Read(p []byte) (int, error) {
 		return r.r.Read(p)
 	}
 }
+
+// closedCh is a pre-closed channel reused for immediately-done Results,
+// avoiding a fresh make+close on every Add error path.
+var closedCh = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()

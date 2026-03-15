@@ -13,10 +13,10 @@ type Options struct {
 	checksum     *checksumVerifier
 	progress     bool
 	skipExisting bool
-	Group        *Queue
+	Group        *queue
 }
 
-// WithBatch activates batch mode by creating a Queue with the given
+// WithBatch activates batch mode by creating a queue with the given
 // concurrency limit. If maxConcurrent <= 0, concurrency is unlimited.
 func WithBatch(maxConcurrent int) Option {
 	return func(opts *Options) error {
@@ -28,7 +28,7 @@ func WithBatch(maxConcurrent int) Option {
 	}
 }
 
-func withBatch(queue *Queue) Option {
+func withBatch(queue *queue) Option {
 	return func(opts *Options) error {
 		opts.Group = queue
 		return nil

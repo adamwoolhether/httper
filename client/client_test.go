@@ -2002,7 +2002,7 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 	r.Add(req1, http.StatusOK, filepath.Join(tmpDir, "second.bin"), download.WithBatch(2))
 
 	if err := r.Wait(); err == nil {
-		t.Fatal("expected error from Wait when WithBatch passed to Result.Add, got nil")
+		t.Fatal("expected error from wait when WithBatch passed to Result.Add, got nil")
 	}
 }
 

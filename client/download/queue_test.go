@@ -80,7 +80,7 @@ func TestGroup_Wait_JoinedErrors(t *testing.T) {
 	g.Start(t.Context(), func(ctx context.Context) error { return err1 }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return err2 }, nil)
 
-	err := g.Wait()
+	err := g.wait()
 	if err == nil {
 		t.Fatal("expected joined error, got nil")
 	}
@@ -100,7 +100,7 @@ func TestGroup_Wait_MixedSuccessAndError(t *testing.T) {
 	g.Start(t.Context(), func(ctx context.Context) error { return wantErr }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)
 
-	err := g.Wait()
+	err := g.wait()
 	if !errors.Is(err, wantErr) {
 		t.Errorf("expected %v, got %v", wantErr, err)
 	}
@@ -135,7 +135,7 @@ func TestGroup_ConcurrencyLimit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	close(barrier)
 
-	if err := g.Wait(); err != nil {
+	if err := g.wait(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -171,7 +171,7 @@ func TestGroup_UnlimitedConcurrency(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	close(barrier)
 
-	if err := g.Wait(); err != nil {
+	if err := g.wait(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -201,7 +201,7 @@ func TestResult_Cancel(t *testing.T) {
 }
 
 func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
-	// Queue with limit 1, start a long-running task to fill the slot,
+	// queue with limit 1, start a long-running task to fill the slot,
 	// then start a second with a cancelled context. It should fail with
 	// context.Canceled without blocking forever.
 	g := newQueue(1)
@@ -230,7 +230,7 @@ func TestGroup_ContextCancellationOnSemaphore(t *testing.T) {
 
 	close(release)
 
-	if err := g.Wait(); err == nil {
+	if err := g.wait(); err == nil {
 		t.Error("expected group error from cancelled task")
 	}
 }
@@ -250,7 +250,7 @@ func TestResult_CancelAll(t *testing.T) {
 	r2 := g.Start(t.Context(), work, nil)
 	r3 := g.Start(t.Context(), work, nil)
 
-	// Wait for all three goroutines to be running.
+	// wait for all three goroutines to be running.
 	for range 3 {
 		<-started
 	}
@@ -271,7 +271,7 @@ func TestGroup_Wait_NilWhenAllSucceed(t *testing.T) {
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)
 	g.Start(t.Context(), func(ctx context.Context) error { return nil }, nil)
 
-	if err := g.Wait(); err != nil {
+	if err := g.wait(); err != nil {
 		t.Errorf("expected nil, got %v", err)
 	}
 }

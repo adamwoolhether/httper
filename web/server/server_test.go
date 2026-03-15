@@ -111,7 +111,7 @@ func TestRun_GracefulShutdown(t *testing.T) {
 		errCh <- srv.Run()
 	}()
 
-	// Wait for the server to be ready.
+	// wait for the server to be ready.
 	addr := fmt.Sprintf("http://localhost:%d/health", port)
 	waitForServer(t, addr, 2*time.Second)
 
@@ -285,7 +285,7 @@ func TestRun_TLS(t *testing.T) {
 		errCh <- srv.Run()
 	}()
 
-	// Wait for TLS server to be ready.
+	// wait for TLS server to be ready.
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},

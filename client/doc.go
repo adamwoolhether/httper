@@ -44,7 +44,7 @@
 //	)
 //	r.Add(req2, http.StatusOK, "/tmp/b.bin")
 //	r.Add(req3, http.StatusOK, "/tmp/c.bin")
-//	err = r.Wait() // blocks until all downloads finish
+//	err = r.wait() // blocks until all downloads finish
 //
 // For lower-level control see the
 // [github.com/adamwoolhether/httper/client/download] package.

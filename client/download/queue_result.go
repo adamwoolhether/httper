@@ -12,11 +12,11 @@ type Result struct {
 	done   chan struct{}
 	err    error
 	cancel context.CancelFunc
-	group  *Queue
+	group  *queue
 }
 
 // Add another download to the same batch.
-// It calls the injected Adder and reuses the existing Queue.
+// It calls the injected Adder and reuses the existing queue.
 // WithBatch cannot be used with this method.
 //
 // Validation errors (empty destPath, conflicting options) are recorded
@@ -25,12 +25,10 @@ type Result struct {
 func (r *Result) Add(req *http.Request, expCode int, destPath string, optFns ...Option) *Result {
 	result, err := r.adder(req, expCode, destPath, slices.Concat([]Option{withBatch(r.group)}, optFns)...)
 	if err != nil {
-		done := make(chan struct{})
-		close(done)
 		r.group.recordErr(err)
 		return &Result{
 			adder:  r.adder,
-			done:   done,
+			done:   closedCh,
 			err:    err,
 			cancel: func() {},
 			group:  r.group,
@@ -51,7 +49,7 @@ func (r *Result) Err() error {
 // Wait blocks until all downloads in the group complete.
 // Returns all errors joined.
 func (r *Result) Wait() error {
-	return r.group.Wait()
+	return r.group.wait()
 }
 
 // Cancel cancels this download's context.
@@ -61,12 +59,5 @@ func (r *Result) Cancel() {
 
 // CancelAll cancels every download in the queue.
 func (r *Result) CancelAll() {
-	r.group.closeOnce.Do(func() { close(r.group.cancelAll) })
-}
-
-// recordErr appends err to the group's error slice under the mutex.
-func (g *Queue) recordErr(err error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.errs = append(g.errs, err)
+	r.group.doCancelAll()
 }
