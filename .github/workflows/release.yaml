@@ -30,8 +30,11 @@ jobs:
       - name: Create GitHub release
         run: |
           # GitHub's default start tag ignores the module prefix, so web notes would diff against a client release.
+          args=(--verify-tag --generate-notes)
           if prev=$(git describe --tags --abbrev=0 --match "${TAG%%/*}/v*" "$TAG^" 2>/dev/null); then
-            gh release create "$TAG" --verify-tag --generate-notes --notes-start-tag "$prev"
-          else
-            gh release create "$TAG" --verify-tag --generate-notes
+            args+=(--notes-start-tag "$prev")
           fi
+          if [[ ${TAG#*/} == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}"
