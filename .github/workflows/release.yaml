@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'client/v*', 'web/v*' ]
+
+jobs:
+  checks:
+    name: Checks
+    permissions:
+      contents: read
+    uses: ./.github/workflows/config.yaml
+
+  release:
+    name: Release
+    needs: checks
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Notify Go module proxy
+        run: curl -fsS --retry 3 "https://proxy.golang.org/github.com/${GITHUB_REPOSITORY}/${TAG%%/*}/@v/${TAG#*/}.info"
+      - name: Create GitHub release
+        run: |
+          # GitHub's default start tag ignores the module prefix, so web notes would diff against a client release.
+          if prev=$(git describe --tags --abbrev=0 --match "${TAG%%/*}/v*" "$TAG^" 2>/dev/null); then
+            gh release create "$TAG" --verify-tag --generate-notes --notes-start-tag "$prev"
+          else
+            gh release create "$TAG" --verify-tag --generate-notes
+          fi
