@@ -41,12 +41,16 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		wait := t.wait(resp, retry)
-		if deadline, ok := ctx.Deadline(); ok && time.Now().Add(wait).After(deadline) {
+		if deadline, ok := ctx.Deadline(); wait > t.maxWait || (ok && time.Now().Add(wait).After(deadline)) {
 			break
 		}
 
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
+		// http.Client accepts a nil Body from a custom transport (golang.org/issue/38095).
+		// Drain and close errors cost only connection reuse, since the next attempt replaces resp.
+		if resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
 
 		select {
 		case <-ctx.Done():
@@ -72,12 +76,12 @@ func (c retryConfig) wait(resp *http.Response, retry int) time.Duration {
 
 	d := c.baseWait
 	for range retry {
-		if d >= c.maxWait {
+		if d > c.maxWait/2 {
+			d = c.maxWait
 			break
 		}
 		d *= 2
 	}
-	d = min(d, c.maxWait)
 
 	// Equal jitter: spreads clients out but keeps every wait at least half the backoff.
 	return d/2 + rand.N(d/2+1)
@@ -115,7 +119,7 @@ func retryableStatus(code int) bool {
 	return code == http.StatusTooManyRequests || (code >= 500 && code < 600)
 }
 
-// IsRetryable reports whether err is transient: a 429 or 5xx status, a timeout, or a transport failure with no response.
+// IsRetryable reports whether err may be transient: a 429 or 5xx status, a timeout, or a transport failure with no response.
 func IsRetryable(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false

@@ -34,6 +34,10 @@ func Build(optFns ...Option) (*Client, error) {
 
 	if opts.client == nil {
 		opts.client = &http.Client{}
+	} else {
+		// Build wraps the transport; on the caller's client, a later Build would wrap the wrapper.
+		hc := *opts.client
+		opts.client = &hc
 	}
 
 	if opts.logger == nil {

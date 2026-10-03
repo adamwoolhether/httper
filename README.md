@@ -183,7 +183,12 @@ c, err := client.Build(
 #### Retries
 
 Send a request again after a 429 or 5xx response. The retry honors `Retry-After`; without it, the retry backs off exponentially with jitter.
-The client timeout bounds all attempts together, and each attempt waits on the throttle.
+The retries stop and return the last response when the next wait would pass the deadline or exceed the backoff cap.
+`WithTimeout` sets one deadline for all attempts, and each attempt waits on the throttle.
+
+- A transport error with no response is never retried.
+- A request with a body but no `GetBody` is sent once. Requests built by `client.Request` have `GetBody`, so a POST retries too.
+
 See [Client Options](#client-options) and [Retry Options](#retry-options).
 
 ```go
@@ -220,7 +225,7 @@ client.WithLogger(l)             // Inject a custom slog.Logger
 Passed to `client.WithRetry(...)`.
 
 ```go
-client.WithBackoff(base, max)  // Set the backoff's first wait and cap (default 1s, 30s)
+client.WithBackoff(base, max)  // Set the backoff's first wait and cap (default 1s, 30s); a longer Retry-After ends the retries
 ```
 
 #### Request Options

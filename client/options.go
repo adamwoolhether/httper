@@ -75,8 +75,11 @@ func WithThrottle(rps, burst int) Option {
 	}
 }
 
-// WithRetry sends a request again after a 429 or 5xx response, up to maxRetries times, honoring Retry-After.
-// The client timeout bounds all attempts together. A maxRetries of 0 sends each request once.
+// WithRetry sends a request again after a 429 or 5xx response, up to maxRetries times; 0 sends each request once.
+// Each retry waits for Retry-After, or else for an exponential backoff (see [WithBackoff]). The retries stop and
+// return the last response when the next wait would pass the request deadline or exceed the backoff cap.
+// [WithTimeout] sets that deadline once for all attempts. A transport error is never retried, and a request
+// with a body but no GetBody is sent once; requests built by [Request] have GetBody whatever their method.
 func WithRetry(maxRetries int, opts ...RetryOption) Option {
 	return func(c *options) error {
 		if maxRetries < 0 {
@@ -97,7 +100,8 @@ func WithRetry(maxRetries int, opts ...RetryOption) Option {
 // RetryOption is a functional option for [WithRetry].
 type RetryOption func(*retryConfig) error
 
-// WithBackoff sets the first wait and the cap of the exponential backoff used when a response has no Retry-After.
+// WithBackoff sets the first wait and the cap of the retry backoff (defaults 1s and 30s).
+// A Retry-After above the cap ends the retries.
 func WithBackoff(base, maxWait time.Duration) RetryOption {
 	return func(c *retryConfig) error {
 		if base <= 0 || maxWait < base {
