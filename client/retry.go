@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -90,8 +91,10 @@ func (c retryConfig) wait(resp *http.Response, retry int) time.Duration {
 }
 
 func parseRetryAfter(v string) (time.Duration, bool) {
-	// On ErrRange, ParseUint returns its maximum; the clamp keeps the product from overflowing.
-	if secs, err := strconv.ParseUint(v, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+	if v != "" && strings.Trim(v, "0123456789") == "" {
+		// All digits fail ParseUint only with ErrRange, which returns its maximum;
+		// the clamp keeps the product from overflowing.
+		secs, _ := strconv.ParseUint(v, 10, 64)
 		return time.Duration(min(secs, uint64(math.MaxInt64/time.Second))) * time.Second, true
 	}
 

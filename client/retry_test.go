@@ -398,43 +398,38 @@ func TestClient_Retry_DrainsDiscardedResponse(t *testing.T) {
 	}
 }
 
-// endlessBody is a response body that never ends, like a stream the server never closes.
-type endlessBody struct {
-	closed atomic.Bool
+// countingBody serves size bytes and counts how many a reader took.
+type countingBody struct {
+	size   int
+	read   int
+	closed bool
 }
 
-func (b *endlessBody) Read(p []byte) (int, error) { return len(p), nil }
+func (b *countingBody) Read(p []byte) (int, error) {
+	if b.read >= b.size {
+		return 0, io.EOF
+	}
+	n := min(len(p), b.size-b.read)
+	b.read += n
+	return n, nil
+}
 
-func (b *endlessBody) Close() error {
-	b.closed.Store(true)
+func (b *countingBody) Close() error {
+	b.closed = true
 	return nil
 }
 
-func TestClient_Retry_EndlessDiscardedBody(t *testing.T) {
-	endless := &endlessBody{}
+func TestClient_Retry_CapsDiscardedDrain(t *testing.T) {
+	large := &countingBody{size: 1 << 20}
 	var sends atomic.Int32
+	u := &url.URL{Scheme: "http", Host: "example.invalid"}
 
-	c, err := client.Build(client.WithTransport(flakyTransport(endless, &sends)), client.WithRetry(1, fastBackoff))
-	if err != nil {
-		t.Fatalf("creating client: %v", err)
+	assertStatus(t, doGet(t, u, client.WithTransport(flakyTransport(large, &sends)), client.WithRetry(1, fastBackoff)), http.StatusOK)
+
+	if large.read >= large.size {
+		t.Errorf("expected a capped drain, read all %d bytes", large.read)
 	}
-
-	req, err := c.Request(t.Context(), &url.URL{Scheme: "http", Host: "example.invalid"}, http.MethodGet)
-	if err != nil {
-		t.Fatalf("creating request: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- c.Do(req, http.StatusOK) }()
-
-	select {
-	case err := <-done:
-		assertStatus(t, err, http.StatusOK)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Do blocked draining the discarded body")
-	}
-
-	if !endless.closed.Load() {
+	if !large.closed {
 		t.Error("expected the discarded body closed")
 	}
 }
