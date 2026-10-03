@@ -207,7 +207,7 @@ func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
 	discardBody := true
 	defer func() {
 		if discardBody {
-			if _, err = io.Copy(io.Discard, resp.Body); err != nil {
+			if _, err = io.CopyN(io.Discard, resp.Body, maxErrBodySize); err != nil && !errors.Is(err, io.EOF) {
 				c.logger.Error("failed to discard unused body", "error", err)
 			}
 		}
@@ -227,9 +227,12 @@ func (c *Client) exec(req *http.Request, expCode int, fn execFn) error {
 			retErr = errors.Join(retErr, ErrAuthFailure)
 		}
 
+		retryAfter, _ := parseRetryAfter(resp.Header.Get("Retry-After"))
+
 		return &UnexpectedStatusError{
 			StatusCode: resp.StatusCode,
 			Body:       string(b),
+			RetryAfter: retryAfter,
 			Err:        retErr,
 		}
 	}

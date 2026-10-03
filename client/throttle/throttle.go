@@ -11,8 +11,8 @@ import (
 
 // NewRoundTripper returns an http.RoundTripper that throttles outbound requests
 // using a token bucket rate limiter. logFn lazily resolves the logger at request
-// time, making option ordering irrelevant. A nil-returning logFn skips the calls
-// to *Limiter.Allow().
+// time, making option ordering irrelevant. A nil-returning logFn skips the token
+// check that decides whether to log.
 func NewRoundTripper(rps, burst int, logFn func() *slog.Logger, next http.RoundTripper) (http.RoundTripper, error) {
 	if rps <= 0 || burst <= 0 {
 		return nil, fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, ErrMustNotBeZero)
@@ -42,7 +42,7 @@ func (t *throttle) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	var waited time.Duration
 	logger := t.logFn()
-	if logger != nil && !t.limiter.Allow() {
+	if logger != nil && t.limiter.Tokens() < 1 {
 		logger.Info("throttle tokens exhausted", "rate", t.rps, "burst", t.burst, "path", r.URL.Path)
 
 		defer func() {

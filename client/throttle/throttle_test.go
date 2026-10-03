@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -301,6 +302,40 @@ func TestThrottleRoundTripper_Behavior(t *testing.T) {
 				tc.timingCheck(t, duration, tc.name)
 			}
 		})
+	}
+}
+
+func TestThrottleRoundTripper_LoggerTakesOneToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rt, err := NewRoundTripper(1, 3, func() *slog.Logger { return logger }, http.DefaultTransport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: rt}
+
+	start := time.Now()
+	for i := range 3 {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Fatalf("request %d: closing body: %v", i, err)
+		}
+	}
+
+	// At 1 rps, a second token per request would make the third request wait about 1s.
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("3 requests within a burst of 3 took %v", elapsed)
 	}
 }
 

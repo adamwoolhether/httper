@@ -4,12 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // maxErrBodySize caps the amount of response body read when
 // building an error for an unexpected status code. This prevents
 // unbounded memory usage when a large response arrives with a
-// wrong status. It also caps the drain of a response the retry discards.
+// wrong status. It also caps the drain of each response body the client discards.
 const maxErrBodySize = 4 << 10 // 4KB
 
 // execFn represents a func to operate on a response.
@@ -28,6 +29,8 @@ var (
 type UnexpectedStatusError struct {
 	StatusCode int
 	Body       string
+	// RetryAfter is the wait a Retry-After header asked for, or 0 when the header is absent or invalid.
+	RetryAfter time.Duration
 	Err        error
 }
 
