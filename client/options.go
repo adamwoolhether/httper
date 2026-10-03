@@ -23,7 +23,8 @@ type options struct {
 	logger            *slog.Logger
 }
 
-// WithClient replaces the default [http.Client] used by the [Client].
+// WithClient sets the [http.Client] the [Client] starts from. Build uses a copy: it never modifies hc,
+// and later changes to hc do not reach the [Client].
 func WithClient(hc *http.Client) Option {
 	return func(c *options) error {
 		if hc == nil {

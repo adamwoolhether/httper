@@ -351,7 +351,7 @@ func TestClient_Retry_SharedHTTPClient(t *testing.T) {
 	assertAttempts(t, got, 1)
 }
 
-// trackedBody records whether a reader drained it and closed it.
+// trackedBody records whether it was closed; Len reports what a reader left unread.
 type trackedBody struct {
 	*strings.Reader
 	closed bool
@@ -398,6 +398,22 @@ func TestClient_Retry_NilBodyResponse(t *testing.T) {
 
 	if n := sends.Load(); n != 2 {
 		t.Errorf("expected 2 sends, got %d", n)
+	}
+}
+
+func TestClient_Retry_NilResponse(t *testing.T) {
+	var sends atomic.Int32
+	broken := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		sends.Add(1)
+		return nil, nil
+	})
+	u := &url.URL{Scheme: "http", Host: "example.invalid"}
+
+	if err := doGet(t, u, client.WithTransport(broken), client.WithRetry(1, fastBackoff)); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if n := sends.Load(); n != 1 {
+		t.Errorf("expected 1 send, got %d", n)
 	}
 }
 

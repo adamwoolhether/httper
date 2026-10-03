@@ -36,7 +36,7 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	resp, err := t.next.RoundTrip(req)
 	for retry := range t.maxRetries {
-		if err != nil || !replayable || !retryableStatus(resp.StatusCode) {
+		if err != nil || resp == nil || !replayable || !retryableStatus(resp.StatusCode) {
 			break
 		}
 

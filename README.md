@@ -199,7 +199,7 @@ c, err := client.Build(
 
 err = c.Do(req, http.StatusOK)
 if client.IsRetryable(err) {
-	// A 429 or 5xx after the last retry, a timeout, or a transport failure with no response.
+	// A 429 or 5xx the retries did not clear, a timeout, or a transport failure with no response.
 }
 ```
 
@@ -210,7 +210,7 @@ if client.IsRetryable(err) {
 Passed to `client.Build(...)`.
 
 ```go
-client.WithClient(hc)            // Replace the default http.Client
+client.WithClient(hc)            // Start from a copy of hc instead of the default http.Client
 client.WithTransport(rt)         // Set a custom http.RoundTripper
 client.WithTimeout(d)            // Set the overall request timeout
 client.WithUserAgent(s)          // Add a persistent User-Agent header
