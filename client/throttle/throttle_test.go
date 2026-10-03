@@ -1,12 +1,14 @@
 package throttle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -301,6 +303,55 @@ func TestThrottleRoundTripper_Behavior(t *testing.T) {
 				tc.timingCheck(t, duration, tc.name)
 			}
 		})
+	}
+}
+
+func TestThrottleRoundTripper_LoggerTakesOneToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	rt, err := NewRoundTripper(1, 3, func() *slog.Logger { return logger }, http.DefaultTransport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: rt}
+
+	send := func(timeout time.Duration) error {
+		ctx, cancel := context.WithTimeout(t.Context(), timeout)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		return resp.Body.Close()
+	}
+
+	exhausted := func() int { return strings.Count(logs.String(), "throttle tokens exhausted") }
+
+	// At 1 rps a token takes 1s to refill, so a request that needs a wait fails its short timeout.
+	for i := range 3 {
+		if err := send(100 * time.Millisecond); err != nil {
+			t.Fatalf("request %d within the burst of 3: %v", i, err)
+		}
+	}
+	if n := exhausted(); n != 0 {
+		t.Errorf("expected no exhausted log within the burst, got %d", n)
+	}
+
+	if err := send(10 * time.Millisecond); err == nil {
+		t.Fatal("expected request 4 to fail waiting for a token, got nil")
+	}
+	if n := exhausted(); n != 1 {
+		t.Errorf("expected 1 exhausted log after the burst, got %d", n)
 	}
 }
 

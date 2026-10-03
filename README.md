@@ -188,6 +188,7 @@ The retries stop and return the last response when the next wait would pass the 
 
 - A transport error with no response is never retried.
 - A request with a body but no `GetBody` is sent once. Requests built by `client.Request` have `GetBody`, so a POST retries too.
+- When the retries give up, `UnexpectedStatusError.RetryAfter` holds the wait the server asked for.
 
 See [Client Options](#client-options) and [Retry Options](#retry-options).
 

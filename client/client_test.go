@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -2003,6 +2006,86 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 
 	if err := r.Wait(); err == nil {
 		t.Fatal("expected error from wait when WithBatch passed to Result.Add, got nil")
+	}
+}
+
+func TestClient_Do_FinalDrain(t *testing.T) {
+	tests := map[string]struct {
+		status   int
+		prefix   string
+		size     int
+		wantFull bool
+	}{
+		"error status caps a large body":    {status: http.StatusInternalServerError, size: 1 << 20},
+		"decoded success caps a large body": {status: http.StatusOK, prefix: "{}", size: 1 << 20},
+		"short body drains in full":         {status: http.StatusOK, prefix: "{}", size: 100, wantFull: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			rest := &countingBody{size: tc.size}
+			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				body := struct {
+					io.Reader
+					io.Closer
+				}{io.MultiReader(strings.NewReader(tc.prefix), rest), rest}
+				return &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: body, Request: r}, nil
+			})
+
+			var logs bytes.Buffer
+			c, err := client.Build(client.WithTransport(rt), client.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+			if err != nil {
+				t.Fatalf("creating client: %v", err)
+			}
+
+			req, err := c.Request(t.Context(), &url.URL{Scheme: "http", Host: "example.invalid"}, http.MethodGet)
+			if err != nil {
+				t.Fatalf("creating request: %v", err)
+			}
+
+			var dest map[string]any
+			assertStatus(t, c.Do(req, http.StatusOK, client.WithDestination(&dest)), tc.status)
+
+			if full := rest.read == rest.size; full != tc.wantFull {
+				t.Errorf("read %d of %d bytes, want full drain: %v", rest.read, rest.size, tc.wantFull)
+			}
+			if !rest.closed {
+				t.Error("expected the body closed")
+			}
+			if strings.Contains(logs.String(), "failed to discard") {
+				t.Errorf("unexpected drain error log: %s", logs.String())
+			}
+		})
+	}
+}
+
+func TestClient_Do_RetryAfter(t *testing.T) {
+	tests := map[string]struct {
+		opts       []client.Option
+		retryAfter string
+		want       time.Duration
+	}{
+		"after the retries give up": {opts: []client.Option{client.WithRetry(3)}, retryAfter: "60", want: time.Minute},
+		"without retries":           {retryAfter: "120", want: 2 * time.Minute},
+		"absent":                    {want: 0},
+		"invalid":                   {retryAfter: "soon", want: 0},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			u, got := retryServer(t, statuses(tc.retryAfter, http.StatusTooManyRequests))
+
+			err := doGet(t, u, tc.opts...)
+
+			var statusErr *client.UnexpectedStatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected *UnexpectedStatusError, got: %T: %v", err, err)
+			}
+			if statusErr.RetryAfter != tc.want {
+				t.Errorf("RetryAfter = %v, want %v", statusErr.RetryAfter, tc.want)
+			}
+			assertAttempts(t, got, 1)
+		})
 	}
 }
 
