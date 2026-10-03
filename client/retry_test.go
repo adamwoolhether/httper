@@ -357,29 +357,32 @@ func TestClient_Retry_TransportFailure(t *testing.T) {
 }
 
 func TestIsRetryable(t *testing.T) {
-	_, parseErr := url.Parse("http://[::1")
+	_, parseErr := client.Request(t.Context(), &url.URL{Scheme: "http", Host: "[::1"}, http.MethodGet)
+	var urlErr *url.Error
+	if !errors.As(parseErr, &urlErr) || urlErr.Op != "parse" {
+		t.Fatalf("expected a URL parse error from Request, got: %v", parseErr)
+	}
 
 	tests := map[string]struct {
 		err  error
 		want bool
 	}{
-		"nil":                     {err: nil, want: false},
-		"429":                     {err: &client.UnexpectedStatusError{StatusCode: http.StatusTooManyRequests}, want: true},
-		"500":                     {err: &client.UnexpectedStatusError{StatusCode: http.StatusInternalServerError}, want: true},
-		"wrapped 503":             {err: fmt.Errorf("exec: %w", &client.UnexpectedStatusError{StatusCode: http.StatusServiceUnavailable}), want: true},
-		"400":                     {err: &client.UnexpectedStatusError{StatusCode: http.StatusBadRequest}, want: false},
-		"404":                     {err: &client.UnexpectedStatusError{StatusCode: http.StatusNotFound}, want: false},
-		"deadline exceeded":       {err: fmt.Errorf("exec: %w", context.DeadlineExceeded), want: true},
-		"Timeout() true":          {err: &net.DNSError{Err: "timed out", IsTimeout: true}, want: true},
-		"round-trip url.Error":    {err: &url.Error{Op: "Get", URL: "http://example.com", Err: io.EOF}, want: true},
-		"net.OpError":             {err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, want: true},
-		"unexpected EOF":          {err: fmt.Errorf("decoding body: %w", io.ErrUnexpectedEOF), want: true},
-		"canceled":                {err: context.Canceled, want: false},
-		"canceled round trip":     {err: &url.Error{Op: "Get", URL: "http://example.com", Err: context.Canceled}, want: false},
-		"URL parse error":         {err: parseErr, want: false},
-		"unclassified":            {err: errors.New("boom"), want: false},
-		"Timeout() false":         {err: &net.DNSError{Err: "no such host", IsNotFound: true}, want: false},
-		"wrapped URL parse error": {err: fmt.Errorf("instantiating request: %w", parseErr), want: false},
+		"nil":                  {err: nil, want: false},
+		"429":                  {err: &client.UnexpectedStatusError{StatusCode: http.StatusTooManyRequests}, want: true},
+		"500":                  {err: &client.UnexpectedStatusError{StatusCode: http.StatusInternalServerError}, want: true},
+		"wrapped 503":          {err: fmt.Errorf("exec: %w", &client.UnexpectedStatusError{StatusCode: http.StatusServiceUnavailable}), want: true},
+		"400":                  {err: &client.UnexpectedStatusError{StatusCode: http.StatusBadRequest}, want: false},
+		"404":                  {err: &client.UnexpectedStatusError{StatusCode: http.StatusNotFound}, want: false},
+		"deadline exceeded":    {err: fmt.Errorf("exec: %w", context.DeadlineExceeded), want: true},
+		"Timeout() true":       {err: &net.DNSError{Err: "timed out", IsTimeout: true}, want: true},
+		"round-trip url.Error": {err: &url.Error{Op: "Get", URL: "http://example.com", Err: io.EOF}, want: true},
+		"net.OpError":          {err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, want: true},
+		"unexpected EOF":       {err: fmt.Errorf("decoding body: %w", io.ErrUnexpectedEOF), want: true},
+		"canceled":             {err: context.Canceled, want: false},
+		"canceled round trip":  {err: &url.Error{Op: "Get", URL: "http://example.com", Err: context.Canceled}, want: false},
+		"URL parse error":      {err: parseErr, want: false},
+		"unclassified":         {err: errors.New("boom"), want: false},
+		"Timeout() false":      {err: &net.DNSError{Err: "no such host", IsNotFound: true}, want: false},
 	}
 
 	for name, tc := range tests {
