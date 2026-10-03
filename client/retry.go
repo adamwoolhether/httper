@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -46,9 +47,10 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		// http.Client accepts a nil Body from a custom transport (golang.org/issue/38095).
-		// Drain and close errors cost only connection reuse, since the next attempt replaces resp.
+		// The capped drain keeps a short body's connection for reuse. A longer body or a drain
+		// error costs only that connection, since the next attempt replaces resp.
 		if resp.Body != nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
+			_, _ = io.CopyN(io.Discard, resp.Body, maxErrBodySize)
 			_ = resp.Body.Close()
 		}
 
@@ -88,9 +90,9 @@ func (c retryConfig) wait(resp *http.Response, retry int) time.Duration {
 }
 
 func parseRetryAfter(v string) (time.Duration, bool) {
-	// 32 bits keeps the seconds-to-Duration product from overflowing.
-	if secs, err := strconv.ParseUint(v, 10, 32); err == nil {
-		return time.Duration(secs) * time.Second, true
+	// On ErrRange, ParseUint returns its maximum; the clamp keeps the product from overflowing.
+	if secs, err := strconv.ParseUint(v, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		return time.Duration(min(secs, uint64(math.MaxInt64/time.Second))) * time.Second, true
 	}
 
 	if t, err := http.ParseTime(v); err == nil {

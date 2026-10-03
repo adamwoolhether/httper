@@ -231,6 +231,14 @@ func TestClient_Retry_GivesUpOnLongWait(t *testing.T) {
 			opts:       []client.Option{client.WithRetry(3, client.WithBackoff(time.Millisecond, time.Second))},
 			retryAfter: "2",
 		},
+		"Retry-After past 32 bits": {
+			opts:       []client.Option{client.WithRetry(3)},
+			retryAfter: "4294967296",
+		},
+		"Retry-After past 64 bits": {
+			opts:       []client.Option{client.WithRetry(3)},
+			retryAfter: "99999999999999999999",
+		},
 	}
 
 	for name, tc := range tests {
@@ -386,6 +394,47 @@ func TestClient_Retry_DrainsDiscardedResponse(t *testing.T) {
 		t.Errorf("expected the discarded body drained, %d bytes left", discarded.Len())
 	}
 	if !discarded.closed {
+		t.Error("expected the discarded body closed")
+	}
+}
+
+// endlessBody is a response body that never ends, like a stream the server never closes.
+type endlessBody struct {
+	closed atomic.Bool
+}
+
+func (b *endlessBody) Read(p []byte) (int, error) { return len(p), nil }
+
+func (b *endlessBody) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+func TestClient_Retry_EndlessDiscardedBody(t *testing.T) {
+	endless := &endlessBody{}
+	var sends atomic.Int32
+
+	c, err := client.Build(client.WithTransport(flakyTransport(endless, &sends)), client.WithRetry(1, fastBackoff))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	req, err := c.Request(t.Context(), &url.URL{Scheme: "http", Host: "example.invalid"}, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.Do(req, http.StatusOK) }()
+
+	select {
+	case err := <-done:
+		assertStatus(t, err, http.StatusOK)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Do blocked draining the discarded body")
+	}
+
+	if !endless.closed.Load() {
 		t.Error("expected the discarded body closed")
 	}
 }
