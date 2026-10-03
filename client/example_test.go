@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/adamwoolhether/httper/client"
@@ -291,6 +292,45 @@ func ExampleWithThrottle() {
 	_ = c
 	fmt.Println("ok")
 	// Output: ok
+}
+
+func ExampleWithRetry() {
+	var attempts atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	c, _ := client.Build(
+		client.WithTimeout(10*time.Second),
+		client.WithRetry(3, client.WithBackoff(100*time.Millisecond, 5*time.Second)),
+	)
+	u, _ := url.Parse(ts.URL)
+	req, _ := client.Request(context.Background(), u, http.MethodGet)
+
+	err := c.Do(req, http.StatusOK)
+	fmt.Println("error:", err, "attempts:", attempts.Load())
+	// Output: error: <nil> attempts: 2
+}
+
+func ExampleIsRetryable() {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	c, _ := client.Build()
+	u, _ := url.Parse(ts.URL)
+	req, _ := client.Request(context.Background(), u, http.MethodGet)
+
+	err := c.Do(req, http.StatusOK)
+	fmt.Println(client.IsRetryable(err))
+	// Output: true
 }
 
 func ExampleWithNoFollowRedirects() {

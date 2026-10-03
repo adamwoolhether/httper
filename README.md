@@ -21,7 +21,7 @@ This is meant to be lightweight, a mere wrapper around the standard library.
 - [Install](#install)
 - [Client](#client)
   - [Quick Start](#quick-start)
-  - [Features](#features): [JSON](#json-requests) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting)
+  - [Features](#features): [JSON](#json-requests) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting) | [Retries](#retries)
   - [Client Options Reference](#client-options-reference)
 - [Web](#web)
   - [Quick Start](#quick-start-1)
@@ -180,6 +180,29 @@ c, err := client.Build(
 )
 ```
 
+#### Retries
+
+Send a request again after a 429 or 5xx response. The retry honors `Retry-After`; without it, the retry backs off exponentially with jitter.
+The retries stop and return the last response when the next wait would pass the deadline or exceed the backoff cap.
+`WithTimeout` sets one deadline for all attempts, and each attempt waits on the throttle.
+
+- A transport error with no response is never retried.
+- A request with a body but no `GetBody` is sent once. Requests built by `client.Request` have `GetBody`, so a POST retries too.
+
+See [Client Options](#client-options) and [Retry Options](#retry-options).
+
+```go
+c, err := client.Build(
+	client.WithTimeout(30 * time.Second),
+	client.WithRetry(3), // up to 3 retries after the first attempt
+)
+
+err = c.Do(req, http.StatusOK)
+if client.IsRetryable(err) {
+	// A 429 or 5xx the retries did not clear, a timeout, or a transport failure with no response.
+}
+```
+
 ### Client Options Reference
 
 #### Client Options
@@ -187,13 +210,22 @@ c, err := client.Build(
 Passed to `client.Build(...)`.
 
 ```go
-client.WithClient(hc)            // Replace the default http.Client
+client.WithClient(hc)            // Start from a copy of hc instead of the default http.Client
 client.WithTransport(rt)         // Set a custom http.RoundTripper
 client.WithTimeout(d)            // Set the overall request timeout
 client.WithUserAgent(s)          // Add a persistent User-Agent header
 client.WithThrottle(rps, burst)  // Enable token-bucket rate limiting
+client.WithRetry(n, opts...)     // Retry 429 and 5xx responses up to n times
 client.WithNoFollowRedirects()   // Prevent following HTTP redirects
 client.WithLogger(l)             // Inject a custom slog.Logger
+```
+
+#### Retry Options
+
+Passed to `client.WithRetry(...)`.
+
+```go
+client.WithBackoff(base, max)  // Set the backoff's first wait and cap (default 1s, 30s); a longer Retry-After ends the retries
 ```
 
 #### Request Options

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -931,6 +932,58 @@ func TestE2E_Throttle(t *testing.T) {
 	// With 2 RPS, 4 requests should take at least ~1 second (burst covers first 2).
 	if elapsed < 500*time.Millisecond {
 		t.Errorf("throttle didn't slow requests: 4 requests completed in %v", elapsed)
+	}
+}
+
+func TestE2E_Retry(t *testing.T) {
+	log := testLogger(t)
+
+	app := mux.New(
+		mux.WithMiddleware(
+			middleware.Logger(log),
+			middleware.Errors(log),
+			middleware.Panics(),
+		),
+		mux.WithLogger(log),
+	)
+
+	var attempts atomic.Int32
+	app.Post("/flaky-echo", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		if attempts.Add(1) == 1 {
+			return errs.New(http.StatusServiceUnavailable, fmt.Errorf("warming up"))
+		}
+		return echoHandler(ctx, w, r)
+	})
+
+	srv := httptest.NewServer(app)
+	t.Cleanup(srv.Close)
+
+	c, err := client.Build(
+		client.WithTimeout(5*time.Second),
+		client.WithRetry(2, client.WithBackoff(time.Millisecond, 10*time.Millisecond)),
+	)
+	if err != nil {
+		t.Fatalf("building client: %v", err)
+	}
+
+	sent := user{Name: "Alice", Email: "alice@test.com", Age: 30}
+
+	reqURL := mustParseURL(t, srv.URL, "/flaky-echo")
+	req, err := c.Request(context.Background(), reqURL, http.MethodPost, client.WithPayload(sent))
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	var got user
+	if err := c.Do(req, http.StatusCreated, client.WithDestination(&got)); err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+
+	if got != sent {
+		t.Errorf("replayed body mismatch:\n  got:  %+v\n  want: %+v", got, sent)
+	}
+	if n := attempts.Load(); n != 2 {
+		t.Errorf("attempts = %d, want 2", n)
 	}
 }
 

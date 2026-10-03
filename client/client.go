@@ -34,6 +34,10 @@ func Build(optFns ...Option) (*Client, error) {
 
 	if opts.client == nil {
 		opts.client = &http.Client{}
+	} else {
+		// Build wraps the transport; on the caller's client, a later Build would wrap the wrapper.
+		hc := *opts.client
+		opts.client = &hc
 	}
 
 	if opts.logger == nil {
@@ -68,6 +72,9 @@ func Build(optFns ...Option) (*Client, error) {
 			return nil, fmt.Errorf("configuring throttle: %w", err)
 		}
 		transport = rt
+	}
+	if opts.retry.maxRetries > 0 {
+		transport = retryTransport{retryConfig: opts.retry, next: transport}
 	}
 
 	opts.client.Transport = transport
