@@ -18,6 +18,7 @@ type options struct {
 	timeout           *time.Duration
 	userAgent         string
 	throttle          *throttle.Config
+	retry             retryConfig
 	noFollowRedirects bool
 	logger            *slog.Logger
 }
@@ -70,6 +71,40 @@ func WithThrottle(rps, burst int) Option {
 			return fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, throttle.ErrMustNotBeZero)
 		}
 		c.throttle = &throttle.Config{RPS: rps, Burst: burst}
+		return nil
+	}
+}
+
+// WithRetry sends a request again after a 429 or 5xx response, up to maxRetries times, honoring Retry-After.
+// The client timeout bounds all attempts together. A maxRetries of 0 sends each request once.
+func WithRetry(maxRetries int, opts ...RetryOption) Option {
+	return func(c *options) error {
+		if maxRetries < 0 {
+			return errors.New("max retries must not be negative")
+		}
+
+		cfg := retryConfig{maxRetries: maxRetries, baseWait: defaultBaseWait, maxWait: defaultMaxWait}
+		for _, opt := range opts {
+			if err := opt(&cfg); err != nil {
+				return fmt.Errorf("applying retry option: %w", err)
+			}
+		}
+		c.retry = cfg
+		return nil
+	}
+}
+
+// RetryOption is a functional option for [WithRetry].
+type RetryOption func(*retryConfig) error
+
+// WithBackoff sets the first wait and the cap of the exponential backoff used when a response has no Retry-After.
+func WithBackoff(base, maxWait time.Duration) RetryOption {
+	return func(c *retryConfig) error {
+		if base <= 0 || maxWait < base {
+			return fmt.Errorf("backoff base[%s] must be positive and not above max[%s]", base, maxWait)
+		}
+		c.baseWait = base
+		c.maxWait = maxWait
 		return nil
 	}
 }

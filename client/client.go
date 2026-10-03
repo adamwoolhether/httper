@@ -69,6 +69,9 @@ func Build(optFns ...Option) (*Client, error) {
 		}
 		transport = rt
 	}
+	if opts.retry.maxRetries > 0 {
+		transport = retryTransport{retryConfig: opts.retry, next: transport}
+	}
 
 	opts.client.Transport = transport
 
