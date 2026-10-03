@@ -1,13 +1,14 @@
 package throttle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -311,31 +312,46 @@ func TestThrottleRoundTripper_LoggerTakesOneToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	rt, err := NewRoundTripper(1, 3, func() *slog.Logger { return logger }, http.DefaultTransport)
 	if err != nil {
 		t.Fatal(err)
 	}
 	client := &http.Client{Transport: rt}
 
-	start := time.Now()
-	for i := range 3 {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	send := func(timeout time.Duration) error {
+		ctx, cancel := context.WithTimeout(t.Context(), timeout)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 		if err != nil {
-			t.Fatalf("request %d: %v", i, err)
+			return err
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			t.Fatalf("request %d: %v", i, err)
+			return err
 		}
-		if err := resp.Body.Close(); err != nil {
-			t.Fatalf("request %d: closing body: %v", i, err)
-		}
+		return resp.Body.Close()
 	}
 
-	// At 1 rps, a second token per request would make the third request wait about 1s.
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Errorf("3 requests within a burst of 3 took %v", elapsed)
+	exhausted := func() int { return strings.Count(logs.String(), "throttle tokens exhausted") }
+
+	// At 1 rps a token takes 1s to refill, so a request that needs a wait fails its short timeout.
+	for i := range 3 {
+		if err := send(100 * time.Millisecond); err != nil {
+			t.Fatalf("request %d within the burst of 3: %v", i, err)
+		}
+	}
+	if n := exhausted(); n != 0 {
+		t.Errorf("expected no exhausted log within the burst, got %d", n)
+	}
+
+	if err := send(10 * time.Millisecond); err == nil {
+		t.Fatal("expected request 4 to fail waiting for a token, got nil")
+	}
+	if n := exhausted(); n != 1 {
+		t.Errorf("expected 1 exhausted log after the burst, got %d", n)
 	}
 }
 

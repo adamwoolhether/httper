@@ -29,7 +29,7 @@ var (
 type UnexpectedStatusError struct {
 	StatusCode int
 	Body       string
-	// RetryAfter is the wait a Retry-After header asked for, or 0 when the header is absent or invalid.
+	// RetryAfter is the wait a Retry-After header asked for; 0 when the header is absent, invalid, or already past.
 	RetryAfter time.Duration
 	Err        error
 }

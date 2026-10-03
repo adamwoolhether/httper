@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2008,27 +2009,31 @@ func TestClient_DownloadAsync_WithBatchOnAddRejected(t *testing.T) {
 	}
 }
 
-func TestClient_Do_CapsFinalDrain(t *testing.T) {
+func TestClient_Do_FinalDrain(t *testing.T) {
 	tests := map[string]struct {
-		status int
-		prefix string
+		status   int
+		prefix   string
+		size     int
+		wantFull bool
 	}{
-		"error status":    {status: http.StatusInternalServerError},
-		"decoded success": {status: http.StatusOK, prefix: "{}"},
+		"error status caps a large body":    {status: http.StatusInternalServerError, size: 1 << 20},
+		"decoded success caps a large body": {status: http.StatusOK, prefix: "{}", size: 1 << 20},
+		"short body drains in full":         {status: http.StatusOK, prefix: "{}", size: 100, wantFull: true},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			large := &countingBody{size: 1 << 20}
+			rest := &countingBody{size: tc.size}
 			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				body := struct {
 					io.Reader
 					io.Closer
-				}{io.MultiReader(strings.NewReader(tc.prefix), large), large}
+				}{io.MultiReader(strings.NewReader(tc.prefix), rest), rest}
 				return &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: body, Request: r}, nil
 			})
 
-			c, err := client.Build(client.WithTransport(rt))
+			var logs bytes.Buffer
+			c, err := client.Build(client.WithTransport(rt), client.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 			if err != nil {
 				t.Fatalf("creating client: %v", err)
 			}
@@ -2041,11 +2046,14 @@ func TestClient_Do_CapsFinalDrain(t *testing.T) {
 			var dest map[string]any
 			assertStatus(t, c.Do(req, http.StatusOK, client.WithDestination(&dest)), tc.status)
 
-			if large.read >= large.size {
-				t.Errorf("expected a capped drain, read all %d bytes", large.read)
+			if full := rest.read == rest.size; full != tc.wantFull {
+				t.Errorf("read %d of %d bytes, want full drain: %v", rest.read, rest.size, tc.wantFull)
 			}
-			if !large.closed {
+			if !rest.closed {
 				t.Error("expected the body closed")
+			}
+			if strings.Contains(logs.String(), "failed to discard") {
+				t.Errorf("unexpected drain error log: %s", logs.String())
 			}
 		})
 	}
