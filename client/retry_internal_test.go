@@ -40,20 +40,20 @@ func TestRetryConfig_WaitBackoff(t *testing.T) {
 }
 
 func TestParseRetryAfter(t *testing.T) {
-	const longest = time.Duration(math.MaxInt64/time.Second) * time.Second
+	const longest = math.MaxUint32 * time.Second
 
 	tests := map[string]struct {
 		value  string
 		want   time.Duration
 		wantOK bool
 	}{
-		"seconds":             {value: "120", want: 120 * time.Second, wantOK: true},
-		"past 32 bits":        {value: "4294967296", want: 4294967296 * time.Second, wantOK: true},
-		"past 64 bits clamps": {value: "99999999999999999999", want: longest, wantOK: true},
-		"overflow then junk":  {value: "99999999999999999999x", wantOK: false},
-		"negative":            {value: "-1", wantOK: false},
-		"empty":               {value: "", wantOK: false},
-		"date in the past":    {value: "Mon, 02 Jan 2006 15:04:05 GMT", want: 0, wantOK: true},
+		"seconds":            {value: "120", want: 120 * time.Second, wantOK: true},
+		"past 32 bits":       {value: "4294967296", want: longest, wantOK: true},
+		"past 64 bits":       {value: "99999999999999999999", want: longest, wantOK: true},
+		"overflow then junk": {value: "99999999999999999999x", wantOK: false},
+		"negative":           {value: "-1", wantOK: false},
+		"empty":              {value: "", wantOK: false},
+		"date in the past":   {value: "Mon, 02 Jan 2006 15:04:05 GMT", want: 0, wantOK: true},
 	}
 
 	for name, tc := range tests {

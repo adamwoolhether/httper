@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -92,10 +91,10 @@ func (c retryConfig) wait(resp *http.Response, retry int) time.Duration {
 
 func parseRetryAfter(v string) (time.Duration, bool) {
 	if v != "" && strings.Trim(v, "0123456789") == "" {
-		// All digits fail ParseUint only with ErrRange, which returns its maximum;
-		// the clamp keeps the product from overflowing.
-		secs, _ := strconv.ParseUint(v, 10, 64)
-		return time.Duration(min(secs, uint64(math.MaxInt64/time.Second))) * time.Second, true
+		// All digits fail ParseUint only with ErrRange, which returns the 32-bit maximum;
+		// that many seconds still fits in a Duration.
+		secs, _ := strconv.ParseUint(v, 10, 32)
+		return time.Duration(secs) * time.Second, true
 	}
 
 	if t, err := http.ParseTime(v); err == nil {
