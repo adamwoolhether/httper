@@ -30,7 +30,7 @@ func Errors(log *slog.Logger, onUnknown ...func(ctx context.Context, err error))
 
 			appErr, ok := errors.AsType[*errs.Error](err)
 			if !ok { // to catch errs that may have escaped, obscure them from public view.
-				notify(ctx, err, onUnknown)
+				runHooks(ctx, err, onUnknown)
 				appErr = errs.NewInternal(err)
 			}
 

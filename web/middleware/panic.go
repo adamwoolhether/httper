@@ -24,7 +24,7 @@ func Panics(onPanic ...func(ctx context.Context, err error)) mux.Middleware {
 					}
 
 					panicErr := fmt.Errorf("PANIC [%v] TRACE[%s]", rec, debug.Stack())
-					notify(ctx, panicErr, onPanic)
+					runHooks(ctx, panicErr, onPanic)
 					err = errs.NewInternal(panicErr)
 				}
 			}()
@@ -36,7 +36,7 @@ func Panics(onPanic ...func(ctx context.Context, err error)) mux.Middleware {
 	return m
 }
 
-func notify(ctx context.Context, err error, hooks []func(ctx context.Context, err error)) {
+func runHooks(ctx context.Context, err error, hooks []func(ctx context.Context, err error)) {
 	for _, hook := range hooks {
 		if hook != nil {
 			hook(ctx, err)
