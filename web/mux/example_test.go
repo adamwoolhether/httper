@@ -152,7 +152,7 @@ func ExampleApp_Use() {
 
 func ExampleWithMiddleware() {
 	// WithMiddleware auto-categorizes by function name:
-	// CORS → global, Logger/Errors → route-level, Panics → outermost route-level.
+	// CORS → global, Logger/Errors → route-level, Panics → innermost route-level.
 	app := mux.New(
 		mux.WithMiddleware(
 			middleware.CORS([]string{"*"}),

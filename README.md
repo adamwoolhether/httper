@@ -345,8 +345,9 @@ app.HandleNoMiddleware(method, group, path, handler)  // skip all route middlewa
 
 #### Groups & Mounts
 
-`Group()` shares the same ServeMux but gets an independent middleware stack.
-`Mount(prefix)` scopes all routes under a URL prefix.
+`Group()` shares the same ServeMux and prefix but gets an independent middleware stack.
+`Mount(prefix)` scopes all routes under a URL prefix. A nested `Mount` adds to the current prefix, so `app.Mount("api").Mount("v1")` serves routes under `/api/v1`.
+Prefixes and route paths work with or without a leading slash.
 
 ```go
 api := app.Mount("api/v1")
@@ -398,14 +399,18 @@ Pass middleware to `mux.WithMiddleware(...)` and they are automatically sorted b
 | 100      | `Panics`   | Route  | Panic recovery                        |
 
 Global middleware runs on every request (via `ServeHTTP`). Route middleware runs per matched route.
+A lower priority wraps a higher one, so `Logger` is the outermost route middleware and `Panics` is the innermost.
 
 ```go
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
-middleware.CSRF(origins...)            // trusted origins (uses net/http.CrossOriginProtection)
+middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
 middleware.Errors(log)                 // *slog.Logger; catches *errs.Error and FieldErrors
 middleware.Panics()                    // recovers from panics
 ```
+
+`CORS([]string{"*"})` allows every origin with `Access-Control-Allow-Origin: *` and no credentials.
+An explicit allowlist reflects the request origin and allows credentials. In an allowlist entry, `*` matches exactly one hostname label: `https://*.example.com` matches `https://api.example.com` but not `https://a.b.example.com`.
 
 Per-route middleware can also be added inline:
 
@@ -432,7 +437,8 @@ web.QueryInt64(r, "ts")   // int64
 
 **Decode & Respond:**
 ```go
-web.Decode(r, &input)                        // JSON decode + validate
+web.Decode(r, &input)                        // JSON decode + validate; does not limit the body size
+web.DecodeLimit(w, r, &input, maxBytes)      // Decode with the body limited to maxBytes
 web.RespondJSON(ctx, w, statusCode, data)    // JSON response
 web.RespondError(ctx, w, errsErr)            // structured error response
 web.Redirect(w, r, url, code)               // HTTP redirect (3xx)
