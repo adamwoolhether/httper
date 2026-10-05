@@ -34,7 +34,9 @@ func Errors(log *slog.Logger) mux.Middleware {
 			reqLog.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
 
 			if appErr.InnerErr { // after logging, obscure the internal error from public view.
-				appErr.Message = http.StatusText(appErr.Code)
+				public := *appErr
+				public.Message = http.StatusText(appErr.Code)
+				appErr = &public
 			}
 
 			return web.RespondJSON(ctx, w, appErr.Code, appErr)
