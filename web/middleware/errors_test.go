@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -155,7 +156,7 @@ func TestErrors_SharedInternalError(t *testing.T) {
 	const secret = "secret db error"
 
 	log, buf := newTestLogger(t)
-	shared := errs.NewInternal(fmt.Errorf(secret))
+	shared := errs.NewInternal(errors.New(secret))
 	handler := middleware.Errors(log)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return shared
 	})
