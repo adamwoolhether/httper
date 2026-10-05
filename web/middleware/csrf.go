@@ -9,6 +9,9 @@ import (
 )
 
 // CSRF uses the standard library CrossOriginProtection to prevent CSRF attacks.
+// Each trusted origin must be an exact scheme://host[:port] value, such as
+// "https://app.example.com:8443", with no path, query, or trailing slash.
+// Wildcards are not supported. CSRF panics if a trusted origin is invalid.
 func CSRF(allowedOrigins ...string) mux.Middleware {
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(errHandler())
