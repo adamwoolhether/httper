@@ -16,7 +16,7 @@ type Server struct {
 	srv             *http.Server
 	shutdownTimeout time.Duration
 	logger          *slog.Logger
-	shutdownFuncs   []shutdownFunc
+	shutdownFuncs   []ShutdownFunc
 	tlsCertFile     string
 	tlsKeyFile      string
 }
