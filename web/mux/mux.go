@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type App struct {
 	globalMW []Middleware
 	mw       []Middleware
 	group    string
+	host     string
 	logger   *slog.Logger
 	tracer   trace.Tracer
 }
@@ -66,9 +68,18 @@ func New(optFns ...Option) *App {
 }
 
 // ServeHTTP implements http.Handler, wrapping global middleware before serving the request.
+// After the global middleware, it lowercases the request Host so that virtual
+// host routes match case-insensitively; route handlers see the lowercased Host.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var routed *http.Request
 	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		a.mux.ServeHTTP(w, r)
+		routed = r
+		if host := lowerASCII(r.Host); host != r.Host {
+			routed = r.WithContext(r.Context())
+			routed.Host = host
+		}
+
+		a.mux.ServeHTTP(w, routed)
 		return nil
 	}
 	wrapped := wrap(a.globalMW, serveHTTP)
@@ -76,31 +87,54 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := wrapped(r.Context(), w, r); err != nil {
 		a.logger.Error("mux", "serve http", err)
 	}
+
+	// ServeMux sets Pattern on the request it routes, and global middleware or the
+	// Host lowercasing may route a copy. Outer handlers such as otelhttp read r.Pattern.
+	if routed != nil {
+		r.Pattern = routed.Pattern
+	}
 }
 
-// Group returns a new App that shares the same underlying ServeMux
-// and tracer but has an independent middleware stack.
+// Group returns a new App that shares the same underlying ServeMux, tracer,
+// route prefix, and virtual host but has an independent middleware stack.
 func (a *App) Group() *App {
 	return &App{
 		mux:      a.mux,
 		globalMW: a.globalMW,
 		mw:       slices.Clone(a.mw),
+		group:    a.group,
+		host:     a.host,
 		logger:   a.logger,
 		tracer:   a.tracer,
 	}
 }
 
 // Mount returns a new App scoped to the given sub-route prefix.
-// All routes registered on the returned App are prefixed with subRoute.
+// All routes registered on the returned App are prefixed with the
+// current prefix followed by subRoute.
 func (a *App) Mount(subRoute string) *App {
-	return &App{
-		mux:      a.mux,
-		globalMW: a.globalMW,
-		mw:       slices.Clone(a.mw),
-		logger:   a.logger,
-		group:    strings.TrimLeft(subRoute, "/"),
-		tracer:   a.tracer,
+	sub := a.Group()
+	sub.group = path.Join(a.group, subRoute)
+	return sub
+}
+
+// VirtualHost returns a new App whose routes match only requests for host,
+// such as "api.example.com". Routes without a virtual host match every host,
+// and a virtual host route takes precedence over them for its host.
+// The host may hold only ASCII letters, digits, '-', and '.', and it is
+// lowercased. A scheme, port, path, wildcard, or IPv6 literal never matches
+// in ServeMux, which ignores the request port. VirtualHost panics if host is invalid.
+func (a *App) VirtualHost(host string) *App {
+	invalid := func(c rune) bool {
+		return !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '.')
 	}
+	if host == "" || strings.ContainsFunc(host, invalid) {
+		panic(fmt.Sprintf("mux: invalid virtual host %q", host))
+	}
+
+	sub := a.Group()
+	sub.host = strings.ToLower(host)
+	return sub
 }
 
 // Use appends the given middleware to the underlying mw stack.
@@ -159,12 +193,7 @@ func (a *App) Handle(method, group, path string, handler Handler, mw ...Middlewa
 		}
 	}
 
-	finalPath := path
-	if group != "" {
-		finalPath = fmt.Sprintf("/%s%s", group, path)
-	}
-
-	pattern := fmt.Sprintf("%s %s", method, finalPath)
+	pattern := fmt.Sprintf("%s %s%s", method, a.host, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
 }
@@ -182,14 +211,24 @@ func (a *App) HandleNoMiddleware(method, group, path string, handler Handler) {
 		}
 	}
 
-	finalPath := path
-	if group != "" {
-		finalPath = fmt.Sprintf("/%s%s", group, path)
-	}
-
-	pattern := fmt.Sprintf("%s %s", method, finalPath)
+	pattern := fmt.Sprintf("%s %s%s", method, a.host, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
+}
+
+// routePath joins group and route into a ServeMux path. Either may omit
+// its leading slash. An empty route matches only the group path itself.
+func routePath(group, route string) string {
+	prefix := strings.TrimSuffix(path.Clean("/"+group), "/")
+
+	switch {
+	case route != "":
+		return prefix + "/" + strings.TrimPrefix(route, "/")
+	case prefix == "":
+		return "/{$}"
+	default:
+		return prefix
+	}
 }
 
 // startSpan initializes the request by adding a span and writing
@@ -220,4 +259,15 @@ func wrap(mw []Middleware, handler Handler) Handler {
 	}
 
 	return handler
+}
+
+// lowerASCII lowercases only ASCII letters. strings.ToLower would also map
+// characters such as the Kelvin sign to ASCII and match a virtual host.
+func lowerASCII(s string) string {
+	return strings.Map(func(c rune) rune {
+		if 'A' <= c && c <= 'Z' {
+			return c + 'a' - 'A'
+		}
+		return c
+	}, s)
 }

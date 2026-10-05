@@ -13,7 +13,10 @@ import (
 )
 
 // Errors handles errors coming out of the call chain.
-func Errors(log *slog.Logger) mux.Middleware {
+// Each onUnknown hook runs with an error that is not an *errs.Error or
+// errs.FieldErrors, for example to report it to an error tracker.
+// A hook that panics is not recovered.
+func Errors(log *slog.Logger, onUnknown ...func(ctx context.Context, err error)) mux.Middleware {
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			err := handler(ctx, w, r)
@@ -27,6 +30,7 @@ func Errors(log *slog.Logger) mux.Middleware {
 
 			appErr, ok := errors.AsType[*errs.Error](err)
 			if !ok { // to catch errs that may have escaped, obscure them from public view.
+				runHooks(ctx, err, onUnknown)
 				appErr = errs.NewInternal(err)
 			}
 
@@ -34,7 +38,9 @@ func Errors(log *slog.Logger) mux.Middleware {
 			reqLog.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
 
 			if appErr.InnerErr { // after logging, obscure the internal error from public view.
-				appErr.Message = http.StatusText(appErr.Code)
+				public := *appErr
+				public.Message = http.StatusText(appErr.Code)
+				appErr = &public
 			}
 
 			return web.RespondJSON(ctx, w, appErr.Code, appErr)

@@ -345,8 +345,11 @@ app.HandleNoMiddleware(method, group, path, handler)  // skip all route middlewa
 
 #### Groups & Mounts
 
-`Group()` shares the same ServeMux but gets an independent middleware stack.
-`Mount(prefix)` scopes all routes under a URL prefix.
+`Group()` shares the same ServeMux, prefix, and virtual host but gets an independent middleware stack.
+`Mount(prefix)` scopes all routes under a URL prefix. A nested `Mount` adds to the current prefix, so `app.Mount("api").Mount("v1")` serves routes under `/api/v1`.
+Prefixes and route paths work with or without a leading slash.
+`VirtualHost(host)` scopes routes to requests whose `Host` header is `host`. Matching ignores ASCII case, and route handlers see the lowercased `Host`. Routes without a virtual host match every host. A virtual host route matches only when the request names that host, so a request to `localhost` or an IP address does not reach it.
+For its host, a virtual host route takes precedence over a route without a host. A virtual host catch-all such as `Get("/")` therefore also hides the host-less `GET` routes and `WithStaticFS` files on that host.
 
 ```go
 api := app.Mount("api/v1")
@@ -358,6 +361,10 @@ api.Post("/users", createUser)
 // Public group: no auth middleware
 pub := app.Group()
 pub.Get("/health", healthCheck)
+
+// Routes for one host only
+admin := app.VirtualHost("admin.example.com")
+admin.Get("/dashboard", dashboard)
 ```
 
 ### Server
@@ -398,14 +405,34 @@ Pass middleware to `mux.WithMiddleware(...)` and they are automatically sorted b
 | 100      | `Panics`   | Route  | Panic recovery                        |
 
 Global middleware runs on every request (via `ServeHTTP`). Route middleware runs per matched route.
+A lower priority wraps a higher one, so `Logger` is the outermost route middleware and `Panics` is the innermost.
 
 ```go
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
-middleware.CSRF(origins...)            // trusted origins (uses net/http.CrossOriginProtection)
+middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins, no wildcards; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
-middleware.Errors(log)                 // *slog.Logger; catches *errs.Error and FieldErrors
-middleware.Panics()                    // recovers from panics
+middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors; optional hooks run for unknown errors
+middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
 ```
+
+`Errors` and `Panics` accept optional hooks of type `func(ctx context.Context, err error)`. A hook is a closure, so it can capture any client it needs, such as an error tracker:
+
+```go
+report := func(ctx context.Context, err error) {
+	sentryHub.CaptureException(err)
+}
+
+app := mux.New(mux.WithMiddleware(
+	middleware.Logger(log),
+	middleware.Errors(log, report), // errors that are not *errs.Error or FieldErrors
+	middleware.Panics(report),      // every panic except http.ErrAbortHandler
+))
+```
+
+`Panics` reports a panic and then returns it as an internal `*errs.Error`, so `Errors` does not report it again.
+
+`CORS([]string{"*"})` allows every origin with `Access-Control-Allow-Origin: *` and no credentials.
+An explicit allowlist reflects the request origin and allows credentials. In an allowlist entry, `*` matches characters other than `.`, `:`, and `/`, so it stays inside one hostname label or the port: `https://*.example.com` matches `https://api.example.com` but not `https://a.b.example.com`, and `http://localhost:*` matches any localhost port.
 
 Per-route middleware can also be added inline:
 
@@ -432,7 +459,8 @@ web.QueryInt64(r, "ts")   // int64
 
 **Decode & Respond:**
 ```go
-web.Decode(r, &input)                        // JSON decode + validate
+web.Decode(r, &input)                        // JSON decode; validates a struct or slice of structs; no body limit
+web.DecodeLimit(w, r, &input, maxBytes)      // Decode with the body limited to maxBytes
 web.RespondJSON(ctx, w, statusCode, data)    // JSON response
 web.RespondError(ctx, w, errsErr)            // structured error response
 web.Redirect(w, r, url, code)               // HTTP redirect (3xx)

@@ -36,7 +36,7 @@
 //	// ... do other work ...
 //	if err := r.Err(); err != nil { ... }
 //
-// For multiple concurrent downloads, use [WithBatch] to set a concurrency
+// For multiple concurrent downloads, use [download.WithBatch] to set a concurrency
 // limit and [download.Result.Add] to enqueue additional files:
 //
 //	r, err := c.DownloadAsync(req1, http.StatusOK, "/tmp/a.bin",
@@ -44,8 +44,9 @@
 //	)
 //	r.Add(req2, http.StatusOK, "/tmp/b.bin")
 //	r.Add(req3, http.StatusOK, "/tmp/c.bin")
-//	err = r.wait() // blocks until all downloads finish
+//	err = r.Wait() // blocks until all downloads finish
 //
-// For lower-level control see the
-// [github.com/adamwoolhether/httper/client/download] package.
+// Download options remain in the
+// [github.com/adamwoolhether/httper/client/download] package, which also
+// offers lower-level control.
 package client

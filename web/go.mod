@@ -18,6 +18,8 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/google/licensecheck v0.3.1 // indirect
+	github.com/google/safehtml v0.0.3-0.20211026203422-d6f0e11a5516 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -28,6 +30,8 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
 	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/pkgsite v0.0.0-20260212172942-ce44214c045b // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
@@ -36,15 +40,12 @@ require (
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 	golang.org/x/vuln v1.1.4 // indirect
 	honnef.co/go/tools v0.8.1 // indirect
+	rsc.io/markdown v0.0.0-20231214224604-88bb533a6020 // indirect
 )
 
 tool (
-	github.com/adamwoolhether/httper/web
-	github.com/adamwoolhether/httper/web/errs
-	github.com/adamwoolhether/httper/web/middleware
-	github.com/adamwoolhether/httper/web/mux
-	github.com/adamwoolhether/httper/web/server
 	github.com/rakyll/gotest
+	golang.org/x/pkgsite/cmd/pkgsite
 	golang.org/x/vuln/cmd/govulncheck
 	honnef.co/go/tools/cmd/staticcheck
 )

@@ -12,6 +12,6 @@
 //
 // Most callers should use the higher-level
 // [github.com/adamwoolhether/httper/client] package, which invokes
-// Handle internally and re-exports all download options as
-// client.With* functions.
+// Handle internally. The download options remain in this package: pass
+// them to client.Client.Download and client.Client.DownloadAsync.
 package download

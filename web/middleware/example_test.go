@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
@@ -127,4 +128,23 @@ func ExamplePanics() {
 
 	fmt.Println(w.Body.String())
 	// Output: safe
+}
+
+func ExamplePanics_report() {
+	report := func(ctx context.Context, err error) {
+		fmt.Println("reported:", strings.HasPrefix(err.Error(), "PANIC [boom]"))
+	}
+
+	handler := middleware.Panics(report)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic("boom")
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	err := handler(r.Context(), w, r)
+
+	fmt.Println(err != nil)
+	// Output:
+	// reported: true
+	// true
 }

@@ -3,10 +3,12 @@ package middleware_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/adamwoolhether/httper/web/errs"
@@ -149,4 +151,90 @@ func TestErrors_PlainError(t *testing.T) {
 	}
 }
 
+func TestErrors_SharedInternalError(t *testing.T) {
+	const requests = 10
+	const secret = "secret db error"
 
+	log, buf := newTestLogger(t)
+	shared := errs.NewInternal(errors.New(secret))
+	handler := middleware.Errors(log)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return shared
+	})
+
+	var wg sync.WaitGroup
+	for range requests {
+		wg.Go(func() {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+			if err := handler(r.Context(), w, r); err != nil {
+				t.Errorf("unexpected error from middleware: %v", err)
+				return
+			}
+
+			var m map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+				t.Errorf("body should be JSON: %v", err)
+				return
+			}
+			if m["message"] != http.StatusText(http.StatusInternalServerError) {
+				t.Errorf("message = %v, want %q", m["message"], http.StatusText(http.StatusInternalServerError))
+			}
+		})
+	}
+	wg.Wait()
+
+	if shared.Message != secret {
+		t.Fatalf("shared error message = %q, want %q", shared.Message, secret)
+	}
+	if got := strings.Count(buf.String(), secret); got != requests {
+		t.Fatalf("log has %d %q entries, want %d:\n%s", got, secret, requests, buf.String())
+	}
+}
+
+func TestErrors_UnknownHooks(t *testing.T) {
+	tests := map[string]struct {
+		err  error
+		want bool
+	}{
+		"unknown error":  {err: errors.New("db down"), want: true},
+		"wrapped error":  {err: fmt.Errorf("query: %w", errors.New("db down")), want: true},
+		"internal error": {err: errs.NewInternal(errors.New("db down")), want: false},
+		"app error":      {err: errs.New(http.StatusBadRequest, errors.New("bad input")), want: false},
+		"field errors":   {err: errs.NewFieldsError("email", errors.New("required")), want: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			log, _ := newTestLogger(t)
+
+			var calls []string
+			hook := func(name string) func(context.Context, error) {
+				return func(ctx context.Context, err error) {
+					if err != tc.err {
+						t.Errorf("%s hook error = %v, want %v", name, err, tc.err)
+					}
+					calls = append(calls, name)
+				}
+			}
+
+			handler := middleware.Errors(log, hook("first"), nil, hook("second"))(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				return tc.err
+			})
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if err := handler(r.Context(), w, r); err != nil {
+				t.Fatalf("unexpected error from middleware: %v", err)
+			}
+
+			want := ""
+			if tc.want {
+				want = "first,second"
+			}
+			if got := strings.Join(calls, ","); got != want {
+				t.Fatalf("hook calls = %q, want %q", got, want)
+			}
+		})
+	}
+}

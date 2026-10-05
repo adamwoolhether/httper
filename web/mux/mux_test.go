@@ -234,6 +234,277 @@ func TestApp_Mount_LeadingSlash(t *testing.T) {
 	}
 }
 
+func TestApp_Mount_Nested(t *testing.T) {
+	app := mux.New()
+	v1 := app.Mount("api").Mount("/v1/")
+	v1.Get("users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	tests := map[string]struct {
+		path string
+		want int
+	}{
+		"full prefix":  {path: "/api/v1/users", want: http.StatusOK},
+		"inner prefix": {path: "/v1/users", want: http.StatusNotFound},
+		"outer prefix": {path: "/api/users", want: http.StatusNotFound},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := serve(app, http.MethodGet, tc.path); got != tc.want {
+				t.Fatalf("GET %s status = %d, want %d", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApp_Mount_Group(t *testing.T) {
+	app := mux.New()
+	api := app.Mount("/api")
+
+	g := api.Group()
+	g.Use(func(handler mux.Handler) mux.Handler {
+		return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			w.Header().Set("X-Group-MW", "yes")
+			return handler(ctx, w, r)
+		}
+	})
+	g.Get("/health", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+	api.Get("/users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/health status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if w.Header().Get("X-Group-MW") != "yes" {
+		t.Fatal("group route missing X-Group-MW header")
+	}
+
+	if got := serve(app, http.MethodGet, "/health"); got != http.StatusNotFound {
+		t.Fatalf("GET /health status = %d, want %d", got, http.StatusNotFound)
+	}
+
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/users status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if w.Header().Get("X-Group-MW") != "" {
+		t.Fatal("mounted route should not have X-Group-MW header")
+	}
+}
+
+func TestApp_RoutePathNormalization(t *testing.T) {
+	tests := map[string]struct {
+		mount string
+		route string
+		path  string
+		miss  string
+	}{
+		"root with slash":          {route: "/users", path: "/users"},
+		"root without slash":       {route: "users", path: "/users"},
+		"root empty route":         {route: "", path: "/", miss: "/other"},
+		"root slash route":         {route: "/", path: "/other"},
+		"mount with slashes":       {mount: "/api/", route: "/users", path: "/api/users"},
+		"mount without slashes":    {mount: "api", route: "users", path: "/api/users"},
+		"mount empty route":        {mount: "api", route: "", path: "/api", miss: "/api/other"},
+		"mount slash route":        {mount: "api", route: "/", path: "/api/other"},
+		"mount with path wildcard": {mount: "api", route: "users/{id}", path: "/api/users/42"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			app := mux.New()
+			sub := app.Mount(tc.mount)
+			sub.Get(tc.route, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				w.WriteHeader(http.StatusOK)
+				return nil
+			})
+
+			if got := serve(app, http.MethodGet, tc.path); got != http.StatusOK {
+				t.Fatalf("Mount(%q).Get(%q): GET %s status = %d, want %d", tc.mount, tc.route, tc.path, got, http.StatusOK)
+			}
+			if tc.miss == "" {
+				return
+			}
+			if got := serve(app, http.MethodGet, tc.miss); got != http.StatusNotFound {
+				t.Fatalf("Mount(%q).Get(%q): GET %s status = %d, want %d", tc.mount, tc.route, tc.miss, got, http.StatusNotFound)
+			}
+		})
+	}
+}
+
+func TestApp_Handle_GroupNormalization(t *testing.T) {
+	for _, group := range []string{"api/v1/", "/api//v1"} {
+		t.Run(group, func(t *testing.T) {
+			app := mux.New()
+			app.Handle(http.MethodGet, group, "users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				w.WriteHeader(http.StatusOK)
+				return nil
+			})
+
+			if got := serve(app, http.MethodGet, "/api/v1/users"); got != http.StatusOK {
+				t.Fatalf("GET /api/v1/users status = %d, want %d", got, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestApp_VirtualHost(t *testing.T) {
+	app := mux.New()
+	app.Get("/users", body("any host"))
+	app.VirtualHost("API.example.com").Get("users", body("api host"))
+	app.VirtualHost("api.example.com").HandleNoMiddleware(http.MethodGet, "", "/raw", body("raw api host"))
+
+	tests := map[string]struct {
+		host string
+		want string
+	}{
+		"matching host":       {host: "api.example.com", want: "api host"},
+		"uppercase host":      {host: "API.EXAMPLE.COM", want: "api host"},
+		"matching host, port": {host: "api.example.com:8443", want: "api host"},
+		"other host":          {host: "other.example.com", want: "any host"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/users", nil)
+			r.Host = tc.host
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK || w.Body.String() != tc.want {
+				t.Fatalf("Host %s: status = %d, body = %q, want 200 %q", tc.host, w.Code, w.Body.String(), tc.want)
+			}
+		})
+	}
+
+	for host, want := range map[string]int{"api.example.com": http.StatusOK, "other.example.com": http.StatusNotFound} {
+		r := httptest.NewRequest(http.MethodGet, "/raw", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+
+		if w.Code != want {
+			t.Fatalf("HandleNoMiddleware: Host %s GET /raw status = %d, want %d", host, w.Code, want)
+		}
+	}
+}
+
+func TestApp_VirtualHost_NonASCIIHost(t *testing.T) {
+	app := mux.New()
+	app.VirtualHost("kiwi.example.com").Get("/admin", body("admin"))
+
+	r := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	r.Host = "\u212Aiwi.example.com"
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Kelvin sign host: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestApp_HandlerSeesLowercaseHost(t *testing.T) {
+	app := mux.New()
+	app.Get("/host", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		_, err := io.WriteString(w, r.Host)
+		return err
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/host", nil)
+	r.Host = "Mixed.Example.com:8443"
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+
+	if got := w.Body.String(); got != "mixed.example.com:8443" {
+		t.Fatalf("handler r.Host = %q, want %q", got, "mixed.example.com:8443")
+	}
+	if r.Host != "Mixed.Example.com:8443" {
+		t.Fatalf("caller request Host = %q, want it unchanged", r.Host)
+	}
+	if r.Pattern != "GET /host" {
+		t.Fatalf("caller request Pattern = %q, want %q", r.Pattern, "GET /host")
+	}
+}
+
+func TestApp_PatternWithGlobalMiddleware(t *testing.T) {
+	app := mux.New(mux.WithMiddleware(middleware.CSRF()))
+	app.Get("/x", body("ok"))
+
+	for _, host := range []string{"example.com", "Example.com"} {
+		r := httptest.NewRequest(http.MethodGet, "/x", nil)
+		r.Host = host
+		app.ServeHTTP(httptest.NewRecorder(), r)
+
+		if r.Pattern != "GET /x" {
+			t.Fatalf("Host %s: caller request Pattern = %q, want %q", host, r.Pattern, "GET /x")
+		}
+	}
+}
+
+func TestApp_VirtualHost_Composition(t *testing.T) {
+	tests := map[string]func(app *mux.App) *mux.App{
+		"host then mount":    func(app *mux.App) *mux.App { return app.VirtualHost("api.example.com").Mount("v1") },
+		"mount then host":    func(app *mux.App) *mux.App { return app.Mount("v1").VirtualHost("api.example.com") },
+		"host, mount, group": func(app *mux.App) *mux.App { return app.VirtualHost("api.example.com").Mount("v1").Group() },
+	}
+
+	for name, scope := range tests {
+		t.Run(name, func(t *testing.T) {
+			app := mux.New()
+			scope(app).Get("users", body("ok"))
+
+			for host, want := range map[string]int{"api.example.com": http.StatusOK, "other.example.com": http.StatusNotFound} {
+				r := httptest.NewRequest(http.MethodGet, "/v1/users", nil)
+				r.Host = host
+				w := httptest.NewRecorder()
+				app.ServeHTTP(w, r)
+
+				if w.Code != want {
+					t.Fatalf("Host %s GET /v1/users status = %d, want %d", host, w.Code, want)
+				}
+			}
+		})
+	}
+}
+
+func TestApp_VirtualHost_Invalid(t *testing.T) {
+	tests := map[string]string{
+		"empty":            "",
+		"scheme":           "https://api.example.com",
+		"port":             "api.example.com:8443",
+		"path":             "api.example.com/v1",
+		"wildcard":         "*.example.com",
+		"whitespace":       " ",
+		"trailing space":   "api.example.com ",
+		"ipv6 literal":     "[::1]",
+		"non-ascii":        "bücher.example",
+		"pattern wildcard": "{sub}.example.com",
+		"kelvin sign":      "\u212Aiwi.example.com",
+	}
+
+	for name, host := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("VirtualHost(%q) did not panic", host)
+				}
+			}()
+			mux.New().VirtualHost(host)
+		})
+	}
+}
+
 func TestApp_Use(t *testing.T) {
 	app := mux.New()
 	app.Use(func(handler mux.Handler) mux.Handler {
@@ -307,8 +578,8 @@ func TestApp_MiddlewareOrder(t *testing.T) {
 	}
 
 	// Verify CORS ran as global middleware by checking the header.
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "http://example.com")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "*")
 	}
 }
 
@@ -547,6 +818,74 @@ func TestApp_FullStack_Panic(t *testing.T) {
 	}
 }
 
+func TestApp_FullStack_ReportsEachFailureOnce(t *testing.T) {
+	log, _ := newTestLogger(t)
+
+	var reported []error
+	report := func(ctx context.Context, err error) {
+		reported = append(reported, err)
+	}
+
+	app := mux.New(
+		mux.WithLogger(log),
+		mux.WithMiddleware(
+			middleware.Panics(report),
+			middleware.Errors(log, report),
+			middleware.Logger(log),
+		),
+	)
+	app.Get("/panic", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic("boom")
+	})
+	app.Get("/panic-app-error", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic(errs.New(http.StatusBadRequest, fmt.Errorf("bad input")))
+	})
+	app.Get("/unknown", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return fmt.Errorf("db down")
+	})
+	app.Get("/internal", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.NewInternal(fmt.Errorf("secret db error"))
+	})
+	app.Get("/bad", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.New(http.StatusBadRequest, fmt.Errorf("bad input"))
+	})
+
+	tests := map[string]struct {
+		path      string
+		wantCode  int
+		wantPanic bool
+		wantCount int
+	}{
+		"panic":           {path: "/panic", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
+		"panic app error": {path: "/panic-app-error", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
+		"unknown error":   {path: "/unknown", wantCode: http.StatusInternalServerError, wantCount: 1},
+		"internal error":  {path: "/internal", wantCode: http.StatusInternalServerError, wantCount: 0},
+		"client error":    {path: "/bad", wantCode: http.StatusBadRequest, wantCount: 0},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			reported = nil
+
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantCode)
+			}
+			if len(reported) != tc.wantCount {
+				t.Fatalf("reported %d errors %v, want %d", len(reported), reported, tc.wantCount)
+			}
+			if tc.wantCount == 0 {
+				return
+			}
+			if isPanic := strings.HasPrefix(reported[0].Error(), "PANIC ["); isPanic != tc.wantPanic {
+				t.Fatalf("reported %q, want panic = %v", reported[0], tc.wantPanic)
+			}
+		})
+	}
+}
+
 func TestApp_FullStack_FieldErrors(t *testing.T) {
 	app, srv, logOutput := newFullStackApp(t)
 
@@ -607,6 +946,19 @@ func TestApp_FullStack_TraceIDInLogs(t *testing.T) {
 			}
 		}
 	}
+}
+
+func body(text string) mux.Handler {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		_, err := io.WriteString(w, text)
+		return err
+	}
+}
+
+func serve(app *mux.App, method, path string) int {
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+	return w.Code
 }
 
 func newTestLogger(t *testing.T) (*slog.Logger, *bytes.Buffer) {

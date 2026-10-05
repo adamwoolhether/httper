@@ -34,7 +34,7 @@ type ordered struct {
 // assigns priorities, and splits them into global vs route-level stacks.
 // Known global middleware (CORS, CSRF) runs on every request via ServeHTTP.
 // Known route middleware (Logger, Errors, Panics) and any custom middleware
-// run per-route in priority order.
+// run per-route in priority order: Logger is outermost and Panics is innermost.
 func WithMiddleware(mw ...Middleware) Option {
 	mwOrdered := make([]ordered, 0, len(mw))
 	globalOrdered := make([]ordered, 0)

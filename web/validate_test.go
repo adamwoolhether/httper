@@ -1,10 +1,13 @@
 package web_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/adamwoolhether/httper/web"
 	"github.com/adamwoolhether/httper/web/errs"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type validStruct struct {
@@ -60,12 +63,8 @@ func TestValidate_InvalidField(t *testing.T) {
 
 func TestValidate_NonStruct(t *testing.T) {
 	s := "just a string"
-	// Passing a non-struct should return nil (the validator.Struct call
-	// returns an InvalidValidationError which is not ValidationErrors).
 	err := web.Validate(&s)
-	if err == nil {
-		// Non-struct might return an error from the validator itself.
-		// Either way, we just ensure it doesn't panic.
-		return
+	if _, ok := errors.AsType[*validator.InvalidValidationError](err); !ok {
+		t.Fatalf("err = %v, want *validator.InvalidValidationError", err)
 	}
 }
