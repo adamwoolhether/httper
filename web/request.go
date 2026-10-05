@@ -106,7 +106,9 @@ func QueryInt64(r *http.Request, key string) (int64, error) {
 // body is decoded into the provided value.
 // If the value is a struct or a slice of structs, Decode checks the validation
 // tags of each struct. A field error in a slice element names the element
-// index, such as "[1].name". Decode does not validate other types.
+// index, such as "[1].name". A JSON null validates as an empty struct, and a
+// null slice element fails as a required field. Decode does not validate
+// other types.
 // Decode does not limit the body size. Use DecodeLimit, or wrap r.Body
 // with http.MaxBytesReader before calling Decode.
 func Decode[T any](r *http.Request, val *T) error {

@@ -318,6 +318,13 @@ func TestDecode_NonStructTargets(t *testing.T) {
 		}
 	})
 
+	t.Run("named time", func(t *testing.T) {
+		want := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+		if got := mustDecode[namedTime](t, `"2026-10-05T00:00:00Z"`); !time.Time(got).Equal(want) {
+			t.Fatalf("got %v, want %v", time.Time(got), want)
+		}
+	})
+
 	t.Run("allow unknown fields map", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"Alice"}`))
 
@@ -343,6 +350,14 @@ func TestDecode_PointerToStruct(t *testing.T) {
 	fields := errs.GetFieldErrors(web.Decode(r, &p)).Fields()
 	if fields["name"] != "This field is required" {
 		t.Fatalf("field errors = %v, want name required", fields)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`null`))
+
+	var nullPayload *testPayload
+	fields = errs.GetFieldErrors(web.Decode(r, &nullPayload)).Fields()
+	if fields["name"] != "This field is required" {
+		t.Fatalf("null body field errors = %v, want name required", fields)
 	}
 }
 
@@ -381,6 +396,43 @@ func TestDecode_StructSlice(t *testing.T) {
 			t.Fatalf("field errors = %v, want [1].name required", fields)
 		}
 	})
+
+	t.Run("null pointer element", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`[{"name":"Alice","email":"alice@example.com"},null]`))
+
+		var got []*testPayload
+		fields := errs.GetFieldErrors(web.Decode(r, &got)).Fields()
+		if fields["[1]"] != "This field is required" || len(fields) != 1 {
+			t.Fatalf("field errors = %v, want only [1] required", fields)
+		}
+	})
+
+	t.Run("embedded struct element", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`[{"name":"","email":"alice@example.com","note":"x"}]`))
+
+		var got []embeddedPayload
+		fields := errs.GetFieldErrors(web.Decode(r, &got)).Fields()
+		if fields["[0].name"] != "This field is required" || len(fields) != 1 {
+			t.Fatalf("field errors = %v, want only [0].name required", fields)
+		}
+	})
+}
+
+type embeddedPayload struct {
+	testPayload
+	Note string `json:"note"`
+}
+
+type namedTime time.Time
+
+func (n *namedTime) UnmarshalJSON(b []byte) error {
+	var t time.Time
+	if err := t.UnmarshalJSON(b); err != nil {
+		return err
+	}
+	*n = namedTime(t)
+
+	return nil
 }
 
 func mustDecode[T any](t *testing.T, body string) T {

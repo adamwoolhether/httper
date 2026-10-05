@@ -44,12 +44,14 @@ func Validate(val any) error {
 }
 
 // validateDecoded validates a decoded struct, or each struct in a decoded
-// slice, and skips every other type.
+// slice, and skips every other type. A nil pointer validates as the zero
+// value, so a JSON null fails required fields for *T the same way as for T.
 func validateDecoded(val any) error {
 	v := reflect.ValueOf(val)
 	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
-			return nil
+			v = reflect.Zero(v.Type().Elem())
+			continue
 		}
 		v = v.Elem()
 	}
@@ -58,20 +60,31 @@ func validateDecoded(val any) error {
 	case isModel(v.Type()):
 		return Validate(v.Interface())
 	case v.Kind() == reflect.Slice && isModel(v.Type().Elem()):
-		return fieldErrors(validate.Var(v.Interface(), "dive"), validator.FieldError.Namespace)
+		return fieldErrors(validate.Var(v.Interface(), "dive,required"), elementField)
 	}
 
 	return nil
 }
 
 // isModel reports whether t, after pointer indirection, is a struct that the
-// validator accepts. The validator rejects time.Time.
+// validator accepts. The validator rejects time.Time and types convertible to it.
 func isModel(t reflect.Type) bool {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
-	return t.Kind() == reflect.Struct && t != reflect.TypeFor[time.Time]()
+	return t.Kind() == reflect.Struct && !t.ConvertibleTo(reflect.TypeFor[time.Time]())
+}
+
+// elementField names a slice element's field error by the element index and
+// the field name that Validate uses, such as "[1].name". A nil element is "[1]".
+func elementField(fe validator.FieldError) string {
+	index, _, found := strings.Cut(fe.Namespace(), ".")
+	if !found {
+		return index
+	}
+
+	return index + "." + fe.Field()
 }
 
 func fieldErrors(err error, name func(validator.FieldError) string) error {
