@@ -57,9 +57,9 @@ tidy:
 	go -C web mod tidy
 
 deps-upgrade:
-	go -C client get -u -v -tool ./...
+	go -C client get -u -v ./... tool
 	go -C client mod tidy
-	go -C web get -u -v -tool ./...
+	go -C web get -u -v ./... tool
 	go -C web mod tidy
 
 deps-cleancache:
