@@ -191,3 +191,52 @@ func TestErrors_SharedInternalError(t *testing.T) {
 		t.Fatalf("log has %d %q entries, want %d:\n%s", got, secret, requests, buf.String())
 	}
 }
+
+func TestErrors_InternalHooks(t *testing.T) {
+	tests := map[string]struct {
+		err  error
+		want bool
+	}{
+		"unknown error":       {err: errors.New("db down"), want: true},
+		"internal error":      {err: errs.NewInternal(errors.New("db down")), want: true},
+		"explicit 500":        {err: errs.New(http.StatusInternalServerError, errors.New("db down")), want: true},
+		"client error":        {err: errs.New(http.StatusBadRequest, errors.New("bad input")), want: false},
+		"field errors":        {err: errs.NewFieldsError("email", errors.New("required")), want: false},
+		"panic error":         {err: &middleware.PanicError{Value: "boom"}, want: false},
+		"wrapped panic error": {err: fmt.Errorf("handler: %w", &middleware.PanicError{Value: "boom"}), want: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			log, _ := newTestLogger(t)
+
+			var calls []string
+			hook := func(name string) func(context.Context, error) {
+				return func(ctx context.Context, err error) {
+					if err != tc.err {
+						t.Errorf("%s hook error = %v, want %v", name, err, tc.err)
+					}
+					calls = append(calls, name)
+				}
+			}
+
+			handler := middleware.Errors(log, hook("first"), nil, hook("second"))(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				return tc.err
+			})
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if err := handler(r.Context(), w, r); err != nil {
+				t.Fatalf("unexpected error from middleware: %v", err)
+			}
+
+			want := ""
+			if tc.want {
+				want = "first,second"
+			}
+			if got := strings.Join(calls, ","); got != want {
+				t.Fatalf("hook calls = %q, want %q", got, want)
+			}
+		})
+	}
+}

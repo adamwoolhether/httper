@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -786,6 +787,66 @@ func TestApp_FullStack_Panic(t *testing.T) {
 	logs := logOutput()
 	if !strings.Contains(logs, "PANIC") {
 		t.Fatalf("log missing PANIC, got:\n%s", logs)
+	}
+}
+
+func TestApp_FullStack_ReportsEachFailureOnce(t *testing.T) {
+	log, _ := newTestLogger(t)
+
+	var reported []error
+	report := func(ctx context.Context, err error) {
+		reported = append(reported, err)
+	}
+
+	app := mux.New(
+		mux.WithLogger(log),
+		mux.WithMiddleware(
+			middleware.Logger(log),
+			middleware.Errors(log, report),
+			middleware.Panics(report),
+		),
+	)
+	app.Get("/panic", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic("boom")
+	})
+	app.Get("/internal", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.NewInternal(fmt.Errorf("secret db error"))
+	})
+	app.Get("/bad", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return errs.New(http.StatusBadRequest, fmt.Errorf("bad input"))
+	})
+
+	tests := map[string]struct {
+		path      string
+		wantCode  int
+		wantPanic bool
+		wantCount int
+	}{
+		"panic":          {path: "/panic", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
+		"internal error": {path: "/internal", wantCode: http.StatusInternalServerError, wantCount: 1},
+		"client error":   {path: "/bad", wantCode: http.StatusBadRequest, wantCount: 0},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			reported = nil
+
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantCode)
+			}
+			if len(reported) != tc.wantCount {
+				t.Fatalf("reported %d errors %v, want %d", len(reported), reported, tc.wantCount)
+			}
+			if tc.wantCount == 0 {
+				return
+			}
+			if _, isPanic := errors.AsType[*middleware.PanicError](reported[0]); isPanic != tc.wantPanic {
+				t.Fatalf("reported %T, want *middleware.PanicError = %v", reported[0], tc.wantPanic)
+			}
+		})
 	}
 }
 

@@ -13,7 +13,10 @@ import (
 )
 
 // Errors handles errors coming out of the call chain.
-func Errors(log *slog.Logger) mux.Middleware {
+// Each non-nil onInternal hook runs in order with the original error when the
+// response is a 500. A *PanicError does not run the hooks, because Panics
+// reports panics through its own hooks.
+func Errors(log *slog.Logger, onInternal ...func(ctx context.Context, err error)) mux.Middleware {
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			err := handler(ctx, w, r)
@@ -32,6 +35,10 @@ func Errors(log *slog.Logger) mux.Middleware {
 
 			reqLog := log.With("trace_id", mux.GetValues(ctx).TraceID)
 			reqLog.Error(err.Error(), "source_err_file", path.Base(appErr.FileName), "source_err_func", path.Base(appErr.FuncName))
+
+			if _, panicked := errors.AsType[*PanicError](err); !panicked && appErr.Code == http.StatusInternalServerError {
+				notify(ctx, err, onInternal)
+			}
 
 			if appErr.InnerErr { // after logging, obscure the internal error from public view.
 				public := *appErr

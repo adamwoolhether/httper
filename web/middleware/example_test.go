@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,4 +128,25 @@ func ExamplePanics() {
 
 	fmt.Println(w.Body.String())
 	// Output: safe
+}
+
+func ExamplePanics_report() {
+	report := func(ctx context.Context, err error) {
+		if panicErr, ok := errors.AsType[*middleware.PanicError](err); ok {
+			fmt.Println("reported panic:", panicErr.Value)
+		}
+	}
+
+	handler := middleware.Panics(report)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic("boom")
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	err := handler(r.Context(), w, r)
+
+	fmt.Println(err != nil)
+	// Output:
+	// reported panic: boom
+	// true
 }
