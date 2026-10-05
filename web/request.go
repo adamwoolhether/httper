@@ -138,7 +138,8 @@ func DecodeAllowUnknownFields[T any](r *http.Request, val *T) error {
 }
 
 // DecodeLimit is the same as Decode, but reads at most maxBytes of the body.
-// A larger body returns an error that wraps *http.MaxBytesError.
+// A JSON value that does not fit in maxBytes returns an error that wraps
+// *http.MaxBytesError.
 func DecodeLimit[T any](w http.ResponseWriter, r *http.Request, val *T, maxBytes int64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 

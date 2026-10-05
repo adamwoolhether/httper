@@ -403,14 +403,14 @@ A lower priority wraps a higher one, so `Logger` is the outermost route middlewa
 
 ```go
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
-middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins; panics on an invalid one
+middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins, no wildcards; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
 middleware.Errors(log)                 // *slog.Logger; catches *errs.Error and FieldErrors
 middleware.Panics()                    // recovers from panics
 ```
 
 `CORS([]string{"*"})` allows every origin with `Access-Control-Allow-Origin: *` and no credentials.
-An explicit allowlist reflects the request origin and allows credentials. In an allowlist entry, `*` matches exactly one hostname label: `https://*.example.com` matches `https://api.example.com` but not `https://a.b.example.com`.
+An explicit allowlist reflects the request origin and allows credentials. In an allowlist entry, `*` matches characters other than `.`, `:`, and `/`, so it stays inside one hostname label or the port: `https://*.example.com` matches `https://api.example.com` but not `https://a.b.example.com`, and `http://localhost:*` matches any localhost port.
 
 Per-route middleware can also be added inline:
 

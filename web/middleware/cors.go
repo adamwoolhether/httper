@@ -12,9 +12,6 @@ import (
 	"github.com/adamwoolhether/httper/web/mux"
 )
 
-// DefaultAllowHeaders is the default set of headers permitted in
-// cross-origin requests when no custom list is provided to CORS.
-
 // CORS sets cross-origin resource sharing headers for allowed origins and
 // rejects other origins with 403. CheckOriginFunc defines how origins match.
 // If "*" is given, all origins are accepted: the response sets
@@ -75,9 +72,11 @@ func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
 // CheckOriginFunc loads the list of allowed origins, and returns a func that determines
 // if the given origin is valid against the allowable list.
 // Each entry may hold several comma-separated origins; spaces around them are ignored.
-// "*" allows every origin. Otherwise one "*" in an entry matches exactly one hostname
-// label: "https://*.example.com" matches "https://api.example.com" but not
+// "*" allows every origin. Otherwise one "*" in an entry matches one or more
+// characters other than ".", ":", and "/", so it stays inside one hostname label
+// or the port. "https://*.example.com" matches "https://api.example.com" but not
 // "https://example.com", "https://a.b.example.com", or "https://api.example.com:8443".
+// "http://localhost:*" matches "http://localhost:3000".
 // An entry with more than one "*" matches nothing.
 func CheckOriginFunc(allowedOrigins []string) func(string) bool {
 	allowed := make(map[string]bool)

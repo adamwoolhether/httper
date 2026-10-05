@@ -115,12 +115,21 @@ func TestCORS_Preflight(t *testing.T) {
 }
 
 func TestCORS_AllowAll(t *testing.T) {
-	for _, method := range []string{http.MethodGet, http.MethodOptions} {
-		t.Run(method, func(t *testing.T) {
-			handler := middleware.CORS([]string{"*"})(okHandler)
+	tests := map[string]struct {
+		allowed []string
+		method  string
+	}{
+		"star":           {allowed: []string{"*"}, method: http.MethodGet},
+		"star preflight": {allowed: []string{"*"}, method: http.MethodOptions},
+		"star in list":   {allowed: []string{"https://a.com, *"}, method: http.MethodGet},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := middleware.CORS(tc.allowed)(okHandler)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(method, "/", nil)
+			r := httptest.NewRequest(tc.method, "/", nil)
 			r.Header.Set("Origin", "https://any.com")
 
 			if err := handler(r.Context(), w, r); err != nil {
@@ -265,6 +274,21 @@ func TestCheckOriginFunc(t *testing.T) {
 			allowed: []string{"https://*.example.com:8443"},
 			origin:  "https://api.example.com:8443",
 			want:    true,
+		},
+		"wildcard port": {
+			allowed: []string{"http://localhost:*"},
+			origin:  "http://localhost:3000",
+			want:    true,
+		},
+		"wildcard host matches single-label host": {
+			allowed: []string{"https://*"},
+			origin:  "https://localhost",
+			want:    true,
+		},
+		"wildcard host rejects dotted host": {
+			allowed: []string{"https://*"},
+			origin:  "https://evil.com",
+			want:    false,
 		},
 		"multiple wildcards match nothing": {
 			allowed: []string{"https://*.*.example.com"},

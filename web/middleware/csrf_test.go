@@ -13,6 +13,7 @@ func TestCSRF_TrustedOrigin(t *testing.T) {
 	}{
 		"scheme and host":  {origin: "https://app.example.com", wantPanic: false},
 		"with port":        {origin: "https://app.example.com:8443", wantPanic: false},
+		"wildcard host":    {origin: "https://*.example.com", wantPanic: false},
 		"missing scheme":   {origin: "app.example.com", wantPanic: true},
 		"trailing slash":   {origin: "https://app.example.com/", wantPanic: true},
 		"with path":        {origin: "https://app.example.com/login", wantPanic: true},
