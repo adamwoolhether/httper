@@ -72,12 +72,15 @@ func New(optFns ...Option) *App {
 // host routes match case-insensitively; route handlers see the lowercased Host.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		routed := r
 		if host := strings.ToLower(r.Host); host != r.Host {
-			r = r.WithContext(r.Context())
-			r.Host = host
+			routed = r.WithContext(r.Context())
+			routed.Host = host
 		}
 
-		a.mux.ServeHTTP(w, r)
+		a.mux.ServeHTTP(w, routed)
+		// ServeMux sets Pattern on the request it routes, and outer handlers such as otelhttp read it.
+		r.Pattern = routed.Pattern
 		return nil
 	}
 	wrapped := wrap(a.globalMW, serveHTTP)
@@ -113,20 +116,19 @@ func (a *App) Mount(subRoute string) *App {
 // VirtualHost returns a new App whose routes match only requests for host,
 // such as "api.example.com". Routes without a virtual host match every host,
 // and a virtual host route takes precedence over them for its host.
-// The host is lowercased and may hold only letters, digits, '-', and '.'.
-// A scheme, port, path, wildcard, or IP literal never matches in ServeMux,
-// which ignores the request port. VirtualHost panics if host is invalid.
+// The host may hold only ASCII letters, digits, '-', and '.', and it is
+// lowercased. A scheme, port, path, wildcard, or IPv6 literal never matches
+// in ServeMux, which ignores the request port. VirtualHost panics if host is invalid.
 func (a *App) VirtualHost(host string) *App {
-	host = strings.ToLower(host)
 	invalid := func(c rune) bool {
-		return !('a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.')
+		return !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '.')
 	}
 	if host == "" || strings.ContainsFunc(host, invalid) {
 		panic(fmt.Sprintf("mux: invalid virtual host %q", host))
 	}
 
 	sub := a.Group()
-	sub.host = host
+	sub.host = strings.ToLower(host)
 	return sub
 }
 

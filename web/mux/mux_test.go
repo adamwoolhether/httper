@@ -418,6 +418,9 @@ func TestApp_HandlerSeesLowercaseHost(t *testing.T) {
 	if r.Host != "Mixed.Example.com:8443" {
 		t.Fatalf("caller request Host = %q, want it unchanged", r.Host)
 	}
+	if r.Pattern != "GET /host" {
+		t.Fatalf("caller request Pattern = %q, want %q", r.Pattern, "GET /host")
+	}
 }
 
 func TestApp_VirtualHost_Composition(t *testing.T) {
@@ -458,6 +461,7 @@ func TestApp_VirtualHost_Invalid(t *testing.T) {
 		"ipv6 literal":     "[::1]",
 		"non-ascii":        "bücher.example",
 		"pattern wildcard": "{sub}.example.com",
+		"kelvin sign":      "\u212Aiwi.example.com",
 	}
 
 	for name, host := range tests {
