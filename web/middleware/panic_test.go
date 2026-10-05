@@ -50,3 +50,22 @@ func TestPanics_Recovery(t *testing.T) {
 		t.Fatalf("error should contain TRACE, got: %s", msg)
 	}
 }
+
+func TestPanics_ErrAbortHandler(t *testing.T) {
+	handler := middleware.Panics()(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic(http.ErrAbortHandler)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	var rec any
+	func() {
+		defer func() { rec = recover() }()
+		_ = handler(r.Context(), w, r)
+	}()
+
+	if rec != http.ErrAbortHandler {
+		t.Fatalf("panic value = %v, want http.ErrAbortHandler", rec)
+	}
+}
