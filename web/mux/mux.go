@@ -106,16 +106,20 @@ func (a *App) Mount(subRoute string) *App {
 // VirtualHost returns a new App whose routes match only requests for host,
 // such as "api.example.com". Routes without a virtual host match every host,
 // and a virtual host route takes precedence over them for its host.
-// The host is lowercased and must have no scheme, port, path, or wildcard,
-// because ServeMux ignores the request port and never matches those forms.
-// VirtualHost panics if host is invalid.
+// The host is lowercased and may hold only letters, digits, '-', and '.'.
+// A scheme, port, path, wildcard, or IP literal never matches in ServeMux,
+// which ignores the request port. VirtualHost panics if host is invalid.
 func (a *App) VirtualHost(host string) *App {
-	if host == "" || strings.ContainsAny(host, "/:*") {
+	host = strings.ToLower(host)
+	invalid := func(c rune) bool {
+		return !('a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.')
+	}
+	if host == "" || strings.ContainsFunc(host, invalid) {
 		panic(fmt.Sprintf("mux: invalid virtual host %q", host))
 	}
 
 	sub := a.Group()
-	sub.host = strings.ToLower(host)
+	sub.host = host
 	return sub
 }
 

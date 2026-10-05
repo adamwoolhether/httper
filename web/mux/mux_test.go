@@ -363,6 +363,7 @@ func TestApp_VirtualHost(t *testing.T) {
 	app := mux.New()
 	app.Get("/users", body("any host"))
 	app.VirtualHost("API.example.com").Get("users", body("api host"))
+	app.VirtualHost("api.example.com").HandleNoMiddleware(http.MethodGet, "", "/raw", body("raw api host"))
 
 	tests := map[string]struct {
 		host string
@@ -384,6 +385,17 @@ func TestApp_VirtualHost(t *testing.T) {
 				t.Fatalf("Host %s: status = %d, body = %q, want 200 %q", tc.host, w.Code, w.Body.String(), tc.want)
 			}
 		})
+	}
+
+	for host, want := range map[string]int{"api.example.com": http.StatusOK, "other.example.com": http.StatusNotFound} {
+		r := httptest.NewRequest(http.MethodGet, "/raw", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+
+		if w.Code != want {
+			t.Fatalf("HandleNoMiddleware: Host %s GET /raw status = %d, want %d", host, w.Code, want)
+		}
 	}
 }
 
@@ -414,8 +426,21 @@ func TestApp_VirtualHost_Composition(t *testing.T) {
 }
 
 func TestApp_VirtualHost_Invalid(t *testing.T) {
-	for _, host := range []string{"", "https://api.example.com", "api.example.com:8443", "api.example.com/v1", "*.example.com"} {
-		t.Run(host, func(t *testing.T) {
+	tests := map[string]string{
+		"empty":            "",
+		"scheme":           "https://api.example.com",
+		"port":             "api.example.com:8443",
+		"path":             "api.example.com/v1",
+		"wildcard":         "*.example.com",
+		"whitespace":       " ",
+		"trailing space":   "api.example.com ",
+		"ipv6 literal":     "[::1]",
+		"non-ascii":        "bücher.example",
+		"pattern wildcard": "{sub}.example.com",
+	}
+
+	for name, host := range tests {
+		t.Run(name, func(t *testing.T) {
 			defer func() {
 				if recover() == nil {
 					t.Fatalf("VirtualHost(%q) did not panic", host)
