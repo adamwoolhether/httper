@@ -308,14 +308,16 @@ func TestApp_RoutePathNormalization(t *testing.T) {
 		mount string
 		route string
 		path  string
+		miss  string
 	}{
 		"root with slash":          {route: "/users", path: "/users"},
 		"root without slash":       {route: "users", path: "/users"},
-		"root empty route":         {route: "", path: "/"},
+		"root empty route":         {route: "", path: "/", miss: "/other"},
+		"root slash route":         {route: "/", path: "/other"},
 		"mount with slashes":       {mount: "/api/", route: "/users", path: "/api/users"},
 		"mount without slashes":    {mount: "api", route: "users", path: "/api/users"},
-		"mount empty route":        {mount: "api", route: "", path: "/api"},
-		"mount slash route":        {mount: "api", route: "/", path: "/api/"},
+		"mount empty route":        {mount: "api", route: "", path: "/api", miss: "/api/other"},
+		"mount slash route":        {mount: "api", route: "/", path: "/api/other"},
 		"mount with path wildcard": {mount: "api", route: "users/{id}", path: "/api/users/42"},
 	}
 
@@ -331,19 +333,29 @@ func TestApp_RoutePathNormalization(t *testing.T) {
 			if got := serve(app, http.MethodGet, tc.path); got != http.StatusOK {
 				t.Fatalf("Mount(%q).Get(%q): GET %s status = %d, want %d", tc.mount, tc.route, tc.path, got, http.StatusOK)
 			}
+			if tc.miss == "" {
+				return
+			}
+			if got := serve(app, http.MethodGet, tc.miss); got != http.StatusNotFound {
+				t.Fatalf("Mount(%q).Get(%q): GET %s status = %d, want %d", tc.mount, tc.route, tc.miss, got, http.StatusNotFound)
+			}
 		})
 	}
 }
 
 func TestApp_Handle_GroupNormalization(t *testing.T) {
-	app := mux.New()
-	app.Handle(http.MethodGet, "api/", "users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		w.WriteHeader(http.StatusOK)
-		return nil
-	})
+	for _, group := range []string{"api/v1/", "/api//v1"} {
+		t.Run(group, func(t *testing.T) {
+			app := mux.New()
+			app.Handle(http.MethodGet, group, "users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				w.WriteHeader(http.StatusOK)
+				return nil
+			})
 
-	if got := serve(app, http.MethodGet, "/api/users"); got != http.StatusOK {
-		t.Fatalf("GET /api/users status = %d, want %d", got, http.StatusOK)
+			if got := serve(app, http.MethodGet, "/api/v1/users"); got != http.StatusOK {
+				t.Fatalf("GET /api/v1/users status = %d, want %d", got, http.StatusOK)
+			}
+		})
 	}
 }
 

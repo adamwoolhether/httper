@@ -181,18 +181,18 @@ func (a *App) HandleNoMiddleware(method, group, path string, handler Handler) {
 }
 
 // routePath joins group and route into a ServeMux path. Either may omit
-// its leading slash. An empty route registers the group path itself.
+// its leading slash. An empty route matches only the group path itself.
 func routePath(group, route string) string {
-	prefix := ""
-	if g := strings.Trim(group, "/"); g != "" {
-		prefix = "/" + g
-	}
+	prefix := strings.TrimSuffix(path.Clean("/"+group), "/")
 
-	if route == "" && prefix != "" {
+	switch {
+	case route != "":
+		return prefix + "/" + strings.TrimPrefix(route, "/")
+	case prefix == "":
+		return "/{$}"
+	default:
 		return prefix
 	}
-
-	return prefix + "/" + strings.TrimPrefix(route, "/")
 }
 
 // startSpan initializes the request by adding a span and writing
