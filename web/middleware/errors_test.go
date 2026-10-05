@@ -192,18 +192,16 @@ func TestErrors_SharedInternalError(t *testing.T) {
 	}
 }
 
-func TestErrors_InternalHooks(t *testing.T) {
+func TestErrors_UnknownHooks(t *testing.T) {
 	tests := map[string]struct {
 		err  error
 		want bool
 	}{
-		"unknown error":       {err: errors.New("db down"), want: true},
-		"internal error":      {err: errs.NewInternal(errors.New("db down")), want: true},
-		"explicit 500":        {err: errs.New(http.StatusInternalServerError, errors.New("db down")), want: true},
-		"client error":        {err: errs.New(http.StatusBadRequest, errors.New("bad input")), want: false},
-		"field errors":        {err: errs.NewFieldsError("email", errors.New("required")), want: false},
-		"panic error":         {err: &middleware.PanicError{Value: "boom"}, want: false},
-		"wrapped panic error": {err: fmt.Errorf("handler: %w", &middleware.PanicError{Value: "boom"}), want: false},
+		"unknown error":  {err: errors.New("db down"), want: true},
+		"wrapped error":  {err: fmt.Errorf("query: %w", errors.New("db down")), want: true},
+		"internal error": {err: errs.NewInternal(errors.New("db down")), want: false},
+		"app error":      {err: errs.New(http.StatusBadRequest, errors.New("bad input")), want: false},
+		"field errors":   {err: errs.NewFieldsError("email", errors.New("required")), want: false},
 	}
 
 	for name, tc := range tests {

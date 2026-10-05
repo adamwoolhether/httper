@@ -2,12 +2,12 @@ package middleware_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
@@ -132,9 +132,7 @@ func ExamplePanics() {
 
 func ExamplePanics_report() {
 	report := func(ctx context.Context, err error) {
-		if panicErr, ok := errors.AsType[*middleware.PanicError](err); ok {
-			fmt.Println("reported panic:", panicErr.Value)
-		}
+		fmt.Println("reported:", strings.HasPrefix(err.Error(), "PANIC [boom]"))
 	}
 
 	handler := middleware.Panics(report)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -147,6 +145,6 @@ func ExamplePanics_report() {
 
 	fmt.Println(err != nil)
 	// Output:
-	// reported panic: boom
+	// reported: true
 	// true
 }

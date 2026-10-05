@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -424,6 +423,21 @@ func TestApp_HandlerSeesLowercaseHost(t *testing.T) {
 	}
 }
 
+func TestApp_PatternWithGlobalMiddleware(t *testing.T) {
+	app := mux.New(mux.WithMiddleware(middleware.CSRF()))
+	app.Get("/x", body("ok"))
+
+	for _, host := range []string{"example.com", "Example.com"} {
+		r := httptest.NewRequest(http.MethodGet, "/x", nil)
+		r.Host = host
+		app.ServeHTTP(httptest.NewRecorder(), r)
+
+		if r.Pattern != "GET /x" {
+			t.Fatalf("Host %s: caller request Pattern = %q, want %q", host, r.Pattern, "GET /x")
+		}
+	}
+}
+
 func TestApp_VirtualHost_Composition(t *testing.T) {
 	tests := map[string]func(app *mux.App) *mux.App{
 		"host then mount":    func(app *mux.App) *mux.App { return app.VirtualHost("api.example.com").Mount("v1") },
@@ -801,13 +815,19 @@ func TestApp_FullStack_ReportsEachFailureOnce(t *testing.T) {
 	app := mux.New(
 		mux.WithLogger(log),
 		mux.WithMiddleware(
-			middleware.Logger(log),
-			middleware.Errors(log, report),
 			middleware.Panics(report),
+			middleware.Errors(log, report),
+			middleware.Logger(log),
 		),
 	)
 	app.Get("/panic", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		panic("boom")
+	})
+	app.Get("/panic-app-error", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		panic(errs.New(http.StatusBadRequest, fmt.Errorf("bad input")))
+	})
+	app.Get("/unknown", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return fmt.Errorf("db down")
 	})
 	app.Get("/internal", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		return errs.NewInternal(fmt.Errorf("secret db error"))
@@ -822,9 +842,11 @@ func TestApp_FullStack_ReportsEachFailureOnce(t *testing.T) {
 		wantPanic bool
 		wantCount int
 	}{
-		"panic":          {path: "/panic", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
-		"internal error": {path: "/internal", wantCode: http.StatusInternalServerError, wantCount: 1},
-		"client error":   {path: "/bad", wantCode: http.StatusBadRequest, wantCount: 0},
+		"panic":           {path: "/panic", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
+		"panic app error": {path: "/panic-app-error", wantCode: http.StatusInternalServerError, wantPanic: true, wantCount: 1},
+		"unknown error":   {path: "/unknown", wantCode: http.StatusInternalServerError, wantCount: 1},
+		"internal error":  {path: "/internal", wantCode: http.StatusInternalServerError, wantCount: 0},
+		"client error":    {path: "/bad", wantCode: http.StatusBadRequest, wantCount: 0},
 	}
 
 	for name, tc := range tests {
@@ -843,8 +865,8 @@ func TestApp_FullStack_ReportsEachFailureOnce(t *testing.T) {
 			if tc.wantCount == 0 {
 				return
 			}
-			if _, isPanic := errors.AsType[*middleware.PanicError](reported[0]); isPanic != tc.wantPanic {
-				t.Fatalf("reported %T, want *middleware.PanicError = %v", reported[0], tc.wantPanic)
+			if isPanic := strings.HasPrefix(reported[0].Error(), "PANIC ["); isPanic != tc.wantPanic {
+				t.Fatalf("reported %q, want panic = %v", reported[0], tc.wantPanic)
 			}
 		})
 	}

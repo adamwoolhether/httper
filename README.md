@@ -411,7 +411,7 @@ A lower priority wraps a higher one, so `Logger` is the outermost route middlewa
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
 middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins, no wildcards; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
-middleware.Errors(log, onInternal...)  // *slog.Logger; catches *errs.Error and FieldErrors; optional hooks run for each 500
+middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors; optional hooks run for unknown errors
 middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
 ```
 
@@ -424,12 +424,12 @@ report := func(ctx context.Context, err error) {
 
 app := mux.New(mux.WithMiddleware(
 	middleware.Logger(log),
-	middleware.Errors(log, report), // every 500 that is not a panic
-	middleware.Panics(report),      // every panic, as a *middleware.PanicError
+	middleware.Errors(log, report), // errors that are not *errs.Error or FieldErrors
+	middleware.Panics(report),      // every panic
 ))
 ```
 
-Each failure reaches the hooks once: `Panics` reports a panic, and `Errors` skips it. A `*middleware.PanicError` holds the panic `Value` and `Stack`.
+`Panics` reports a panic and then returns it as an internal `*errs.Error`, so `Errors` does not report it again.
 
 `CORS([]string{"*"})` allows every origin with `Access-Control-Allow-Origin: *` and no credentials.
 An explicit allowlist reflects the request origin and allows credentials. In an allowlist entry, `*` matches characters other than `.`, `:`, and `/`, so it stays inside one hostname label or the port: `https://*.example.com` matches `https://api.example.com` but not `https://a.b.example.com`, and `http://localhost:*` matches any localhost port.

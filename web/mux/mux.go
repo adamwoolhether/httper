@@ -71,22 +71,27 @@ func New(optFns ...Option) *App {
 // After the global middleware, it lowercases the request Host so that virtual
 // host routes match case-insensitively; route handlers see the lowercased Host.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var routed *http.Request
 	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		routed := r
+		routed = r
 		if host := strings.ToLower(r.Host); host != r.Host {
 			routed = r.WithContext(r.Context())
 			routed.Host = host
 		}
 
 		a.mux.ServeHTTP(w, routed)
-		// ServeMux sets Pattern on the request it routes, and outer handlers such as otelhttp read it.
-		r.Pattern = routed.Pattern
 		return nil
 	}
 	wrapped := wrap(a.globalMW, serveHTTP)
 
 	if err := wrapped(r.Context(), w, r); err != nil {
 		a.logger.Error("mux", "serve http", err)
+	}
+
+	// ServeMux sets Pattern on the request it routes, and global middleware or the
+	// Host lowercasing may route a copy. Outer handlers such as otelhttp read r.Pattern.
+	if routed != nil {
+		r.Pattern = routed.Pattern
 	}
 }
 

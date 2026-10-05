@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
 )
 
@@ -98,19 +99,16 @@ func TestPanics_Hooks(t *testing.T) {
 		t.Fatalf("hook calls = %v, want [first second]", calls)
 	}
 	for _, got := range reported {
-		if got != err {
-			t.Fatalf("hook error = %v, want the returned error %v", got, err)
+		if !strings.Contains(got.Error(), "PANIC [boom]") || !strings.Contains(got.Error(), "panic_test.go") {
+			t.Fatalf("hook error = %q, want the panic value and the panicking frame", got)
 		}
 	}
 
-	panicErr, ok := errors.AsType[*middleware.PanicError](err)
-	if !ok {
-		t.Fatalf("err = %T, want *middleware.PanicError", err)
+	appErr, ok := errors.AsType[*errs.Error](err)
+	if !ok || !appErr.IsInternal() {
+		t.Fatalf("err = %#v, want an internal *errs.Error", err)
 	}
-	if panicErr.Value != "boom" {
-		t.Fatalf("Value = %v, want %q", panicErr.Value, "boom")
-	}
-	if !strings.Contains(string(panicErr.Stack), "panic_test.go") {
-		t.Fatalf("Stack does not include the panicking frame:\n%s", panicErr.Stack)
+	if appErr.Message != reported[0].Error() {
+		t.Fatalf("returned message = %q, want the reported panic error", appErr.Message)
 	}
 }
