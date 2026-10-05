@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -78,29 +79,26 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Group returns a new App that shares the same underlying ServeMux
-// and tracer but has an independent middleware stack.
+// Group returns a new App that shares the same underlying ServeMux,
+// tracer, and route prefix but has an independent middleware stack.
 func (a *App) Group() *App {
 	return &App{
 		mux:      a.mux,
 		globalMW: a.globalMW,
 		mw:       slices.Clone(a.mw),
+		group:    a.group,
 		logger:   a.logger,
 		tracer:   a.tracer,
 	}
 }
 
 // Mount returns a new App scoped to the given sub-route prefix.
-// All routes registered on the returned App are prefixed with subRoute.
+// All routes registered on the returned App are prefixed with the
+// current prefix followed by subRoute.
 func (a *App) Mount(subRoute string) *App {
-	return &App{
-		mux:      a.mux,
-		globalMW: a.globalMW,
-		mw:       slices.Clone(a.mw),
-		logger:   a.logger,
-		group:    strings.TrimLeft(subRoute, "/"),
-		tracer:   a.tracer,
-	}
+	sub := a.Group()
+	sub.group = path.Join(a.group, subRoute)
+	return sub
 }
 
 // Use appends the given middleware to the underlying mw stack.
@@ -159,12 +157,7 @@ func (a *App) Handle(method, group, path string, handler Handler, mw ...Middlewa
 		}
 	}
 
-	finalPath := path
-	if group != "" {
-		finalPath = fmt.Sprintf("/%s%s", group, path)
-	}
-
-	pattern := fmt.Sprintf("%s %s", method, finalPath)
+	pattern := fmt.Sprintf("%s %s", method, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
 }
@@ -182,14 +175,24 @@ func (a *App) HandleNoMiddleware(method, group, path string, handler Handler) {
 		}
 	}
 
-	finalPath := path
-	if group != "" {
-		finalPath = fmt.Sprintf("/%s%s", group, path)
-	}
-
-	pattern := fmt.Sprintf("%s %s", method, finalPath)
+	pattern := fmt.Sprintf("%s %s", method, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
+}
+
+// routePath joins group and route into a ServeMux path. Either may omit
+// its leading slash. An empty route registers the group path itself.
+func routePath(group, route string) string {
+	prefix := ""
+	if g := strings.Trim(group, "/"); g != "" {
+		prefix = "/" + g
+	}
+
+	if route == "" && prefix != "" {
+		return prefix
+	}
+
+	return prefix + "/" + strings.TrimPrefix(route, "/")
 }
 
 // startSpan initializes the request by adding a span and writing

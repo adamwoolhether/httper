@@ -234,6 +234,119 @@ func TestApp_Mount_LeadingSlash(t *testing.T) {
 	}
 }
 
+func TestApp_Mount_Nested(t *testing.T) {
+	app := mux.New()
+	v1 := app.Mount("api").Mount("/v1/")
+	v1.Get("users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	tests := map[string]struct {
+		path string
+		want int
+	}{
+		"full prefix":  {path: "/api/v1/users", want: http.StatusOK},
+		"inner prefix": {path: "/v1/users", want: http.StatusNotFound},
+		"outer prefix": {path: "/api/users", want: http.StatusNotFound},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := serve(app, http.MethodGet, tc.path); got != tc.want {
+				t.Fatalf("GET %s status = %d, want %d", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApp_Mount_Group(t *testing.T) {
+	app := mux.New()
+	api := app.Mount("/api")
+
+	g := api.Group()
+	g.Use(func(handler mux.Handler) mux.Handler {
+		return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			w.Header().Set("X-Group-MW", "yes")
+			return handler(ctx, w, r)
+		}
+	})
+	g.Get("/health", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+	api.Get("/users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/health status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if w.Header().Get("X-Group-MW") != "yes" {
+		t.Fatal("group route missing X-Group-MW header")
+	}
+
+	if got := serve(app, http.MethodGet, "/health"); got != http.StatusNotFound {
+		t.Fatalf("GET /health status = %d, want %d", got, http.StatusNotFound)
+	}
+
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/users status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if w.Header().Get("X-Group-MW") != "" {
+		t.Fatal("mounted route should not have X-Group-MW header")
+	}
+}
+
+func TestApp_RoutePathNormalization(t *testing.T) {
+	tests := map[string]struct {
+		mount string
+		route string
+		path  string
+	}{
+		"root with slash":          {route: "/users", path: "/users"},
+		"root without slash":       {route: "users", path: "/users"},
+		"root empty route":         {route: "", path: "/"},
+		"mount with slashes":       {mount: "/api/", route: "/users", path: "/api/users"},
+		"mount without slashes":    {mount: "api", route: "users", path: "/api/users"},
+		"mount empty route":        {mount: "api", route: "", path: "/api"},
+		"mount slash route":        {mount: "api", route: "/", path: "/api/"},
+		"mount with path wildcard": {mount: "api", route: "users/{id}", path: "/api/users/42"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			app := mux.New()
+			sub := app.Mount(tc.mount)
+			sub.Get(tc.route, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				w.WriteHeader(http.StatusOK)
+				return nil
+			})
+
+			if got := serve(app, http.MethodGet, tc.path); got != http.StatusOK {
+				t.Fatalf("Mount(%q).Get(%q): GET %s status = %d, want %d", tc.mount, tc.route, tc.path, got, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestApp_Handle_GroupNormalization(t *testing.T) {
+	app := mux.New()
+	app.Handle(http.MethodGet, "api/", "users", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+
+	if got := serve(app, http.MethodGet, "/api/users"); got != http.StatusOK {
+		t.Fatalf("GET /api/users status = %d, want %d", got, http.StatusOK)
+	}
+}
+
 func TestApp_Use(t *testing.T) {
 	app := mux.New()
 	app.Use(func(handler mux.Handler) mux.Handler {
@@ -607,6 +720,12 @@ func TestApp_FullStack_TraceIDInLogs(t *testing.T) {
 			}
 		}
 	}
+}
+
+func serve(app *mux.App, method, path string) int {
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+	return w.Code
 }
 
 func newTestLogger(t *testing.T) (*slog.Logger, *bytes.Buffer) {
