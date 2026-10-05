@@ -28,9 +28,6 @@ require (
 )
 
 tool (
-	github.com/adamwoolhether/httper/client
-	github.com/adamwoolhether/httper/client/download
-	github.com/adamwoolhether/httper/client/throttle
 	github.com/rakyll/gotest
 	golang.org/x/pkgsite/cmd/pkgsite
 	golang.org/x/vuln/cmd/govulncheck
