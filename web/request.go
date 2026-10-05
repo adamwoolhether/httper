@@ -106,6 +106,8 @@ func QueryInt64(r *http.Request, key string) (int64, error) {
 // body is decoded into the provided value.
 // If the provided value is a struct then it is checked for validation tags.
 // If the value implements a validate function, it is executed.
+// Decode does not limit the body size. Use DecodeLimit, or wrap r.Body
+// with http.MaxBytesReader before calling Decode.
 func Decode[T any](r *http.Request, val *T) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -121,6 +123,7 @@ func Decode[T any](r *http.Request, val *T) error {
 }
 
 // DecodeAllowUnknownFields is the same as Decode, but won't reject unknown fields.
+// Like Decode, it does not limit the body size.
 func DecodeAllowUnknownFields[T any](r *http.Request, val *T) error {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(val); err != nil {
@@ -132,4 +135,12 @@ func DecodeAllowUnknownFields[T any](r *http.Request, val *T) error {
 	}
 
 	return nil
+}
+
+// DecodeLimit is the same as Decode, but reads at most maxBytes of the body.
+// A larger body returns an error that wraps *http.MaxBytesError.
+func DecodeLimit[T any](w http.ResponseWriter, r *http.Request, val *T, maxBytes int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	return Decode(r, val)
 }

@@ -149,6 +149,25 @@ func ExampleDecodeAllowUnknownFields() {
 	// Output: alice
 }
 
+func ExampleDecodeLimit() {
+	type Input struct {
+		Name string `json:"name" validate:"required"`
+	}
+
+	body := strings.NewReader(`{"name":"alice"}`)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", body)
+
+	var input Input
+	if err := web.DecodeLimit(w, r, &input, 1<<20); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(input.Name)
+	// Output: alice
+}
+
 // ————————————————————————————————————————————————————————————————————
 // Response helper examples
 // ————————————————————————————————————————————————————————————————————

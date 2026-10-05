@@ -1,6 +1,7 @@
 package web_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -284,5 +285,56 @@ func TestDecodeAllowUnknownFields(t *testing.T) {
 	}
 	if p.Name != "Bob" {
 		t.Fatalf("Name = %q, want %q", p.Name, "Bob")
+	}
+}
+
+func TestDecodeLimit(t *testing.T) {
+	body := `{"name":"Alice","email":"alice@example.com"}`
+
+	tests := map[string]struct {
+		maxBytes int64
+		wantErr  bool
+	}{
+		"body within limit": {maxBytes: int64(len(body)), wantErr: false},
+		"body over limit":   {maxBytes: int64(len(body)) - 1, wantErr: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+
+			var p testPayload
+			err := web.DecodeLimit(w, r, &p, tc.maxBytes)
+
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if p.Name != "Alice" {
+					t.Fatalf("Name = %q, want %q", p.Name, "Alice")
+				}
+				return
+			}
+
+			maxErr, ok := errors.AsType[*http.MaxBytesError](err)
+			if !ok {
+				t.Fatalf("err = %v, want *http.MaxBytesError", err)
+			}
+			if maxErr.Limit != tc.maxBytes {
+				t.Fatalf("Limit = %d, want %d", maxErr.Limit, tc.maxBytes)
+			}
+		})
+	}
+}
+
+func TestDecodeLimit_UnknownFieldsRejected(t *testing.T) {
+	body := `{"name":"Alice","email":"alice@example.com","extra":"field"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+
+	var p testPayload
+	if err := web.DecodeLimit(w, r, &p, 1<<20); err == nil {
+		t.Fatal("expected error for unknown fields")
 	}
 }
