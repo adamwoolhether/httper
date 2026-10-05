@@ -370,6 +370,7 @@ func TestApp_VirtualHost(t *testing.T) {
 		want string
 	}{
 		"matching host":       {host: "api.example.com", want: "api host"},
+		"uppercase host":      {host: "API.EXAMPLE.COM", want: "api host"},
 		"matching host, port": {host: "api.example.com:8443", want: "api host"},
 		"other host":          {host: "other.example.com", want: "any host"},
 	}
@@ -396,6 +397,26 @@ func TestApp_VirtualHost(t *testing.T) {
 		if w.Code != want {
 			t.Fatalf("HandleNoMiddleware: Host %s GET /raw status = %d, want %d", host, w.Code, want)
 		}
+	}
+}
+
+func TestApp_HandlerSeesLowercaseHost(t *testing.T) {
+	app := mux.New()
+	app.Get("/host", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		_, err := io.WriteString(w, r.Host)
+		return err
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/host", nil)
+	r.Host = "Mixed.Example.com:8443"
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+
+	if got := w.Body.String(); got != "mixed.example.com:8443" {
+		t.Fatalf("handler r.Host = %q, want %q", got, "mixed.example.com:8443")
+	}
+	if r.Host != "Mixed.Example.com:8443" {
+		t.Fatalf("caller request Host = %q, want it unchanged", r.Host)
 	}
 }
 

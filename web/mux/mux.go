@@ -68,8 +68,15 @@ func New(optFns ...Option) *App {
 }
 
 // ServeHTTP implements http.Handler, wrapping global middleware before serving the request.
+// After the global middleware, it lowercases the request Host so that virtual
+// host routes match case-insensitively; route handlers see the lowercased Host.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		if host := strings.ToLower(r.Host); host != r.Host {
+			r = r.WithContext(r.Context())
+			r.Host = host
+		}
+
 		a.mux.ServeHTTP(w, r)
 		return nil
 	}
