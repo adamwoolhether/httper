@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"path"
+	"slices"
 	"strings"
 
 	"github.com/adamwoolhether/httper/web"
@@ -15,9 +15,12 @@ import (
 // DefaultAllowHeaders is the default set of headers permitted in
 // cross-origin requests when no custom list is provided to CORS.
 
-// CORS middleware for handling CORS settings.
-// If `*` is given, all origins will be accepted.
-// Sensivle default headers are set, and can be optionally
+// CORS sets cross-origin resource sharing headers for allowed origins and
+// rejects other origins with 403. CheckOriginFunc defines how origins match.
+// If "*" is given, all origins are accepted: the response sets
+// Access-Control-Allow-Origin to "*" and does not allow credentials.
+// An explicit allowlist reflects the request origin and allows credentials.
+// Sensible default headers are set, and can be optionally
 // overridden with the variadic allowedHeaders parameter.
 func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
 	defaultHeaders := []string{
@@ -32,6 +35,7 @@ func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
 		allowedHeaders = defaultHeaders
 	}
 
+	allowAll := slices.Contains(splitOrigins(allowedOrigins), "*")
 	originAllowed := CheckOriginFunc(allowedOrigins)
 	headers := strings.Join(allowedHeaders, ", ")
 
@@ -42,16 +46,20 @@ func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
 				return handler(ctx, w, r)
 			}
 
-			if originAllowed(origin) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS, PUT, POST, PATCH, DELETE")
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Max-Age", "86400")
-				w.Header().Set("Access-Control-Allow-Headers", headers)
-			} else {
+			if !originAllowed(origin) {
 				return web.RespondError(ctx, w, errs.New(http.StatusForbidden, fmt.Errorf("CORS origin[%s] not allowed", origin)))
 			}
+
+			if allowAll {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS, PUT, POST, PATCH, DELETE")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.Header().Set("Access-Control-Allow-Headers", headers)
 
 			if r.Method == http.MethodOptions {
 				return web.RespondJSON(ctx, w, http.StatusNoContent, nil)
@@ -66,45 +74,56 @@ func CORS(allowedOrigins []string, allowedHeaders ...string) mux.Middleware {
 
 // CheckOriginFunc loads the list of allowed origins, and returns a func that determines
 // if the given origin is valid against the allowable list.
+// Each entry may hold several comma-separated origins; spaces around them are ignored.
+// "*" allows every origin. Otherwise one "*" in an entry matches exactly one hostname
+// label: "https://*.example.com" matches "https://api.example.com" but not
+// "https://example.com", "https://a.b.example.com", or "https://api.example.com:8443".
+// An entry with more than one "*" matches nothing.
 func CheckOriginFunc(allowedOrigins []string) func(string) bool {
-	// wildCardCheckFn is a closure to check the given origin against
-	// a list of potential wildcard allowed origins.
-	wildCardCheckFn := func(wildcards []string, origin string) bool {
-		for _, o := range wildcards {
-			matches, err := path.Match(o, origin)
-			if matches && err == nil {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	// Ensure the given list from config is actually an array
-	// in case the user gives a comma-separated string instead of an array of strings.
-	separated := make([]string, 0)
-	for _, o := range allowedOrigins {
-		separated = append(separated, strings.Split(o, ",")...)
-	}
-
 	allowed := make(map[string]bool)
-	wildCardOrigins := make([]string, 0)
+	var wildcards []string
 
-	// Collect non-wildcard origins in `allowed` map,
-	// and wildcard origins on `wildCardOrigins`.
-	for _, o := range separated {
-		switch {
-		case o == "*": // Check for the `allowAll` catchall.
-			allowed["*"] = true
-		case strings.Contains(o, "*"):
-			wildCardOrigins = append(wildCardOrigins, o)
-		default:
-			allowed[o] = true
+	for _, o := range splitOrigins(allowedOrigins) {
+		if o != "*" && strings.Contains(o, "*") {
+			wildcards = append(wildcards, o)
+			continue
 		}
+		allowed[o] = true
 	}
 	allowAll := allowed["*"]
 
 	return func(origin string) bool {
-		return allowAll || allowed[origin] || wildCardCheckFn(wildCardOrigins, origin)
+		return allowAll || allowed[origin] || slices.ContainsFunc(wildcards, func(pattern string) bool {
+			return matchLabel(pattern, origin)
+		})
 	}
+}
+
+// splitOrigins accepts a comma-separated string in place of an array,
+// in case the list comes from config.
+func splitOrigins(allowedOrigins []string) []string {
+	var origins []string
+	for _, entry := range allowedOrigins {
+		for o := range strings.SplitSeq(entry, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				origins = append(origins, o)
+			}
+		}
+	}
+
+	return origins
+}
+
+func matchLabel(pattern, origin string) bool {
+	prefix, suffix, _ := strings.Cut(pattern, "*")
+	if strings.Contains(suffix, "*") ||
+		len(origin) <= len(prefix)+len(suffix) ||
+		!strings.HasPrefix(origin, prefix) ||
+		!strings.HasSuffix(origin, suffix) {
+		return false
+	}
+
+	label := origin[len(prefix) : len(origin)-len(suffix)]
+
+	return !strings.ContainsAny(label, ".:/")
 }

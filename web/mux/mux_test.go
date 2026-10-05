@@ -420,8 +420,8 @@ func TestApp_MiddlewareOrder(t *testing.T) {
 	}
 
 	// Verify CORS ran as global middleware by checking the header.
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "http://example.com")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "*")
 	}
 }
 

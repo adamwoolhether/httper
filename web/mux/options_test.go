@@ -29,8 +29,8 @@ func TestWithMiddleware_AutoGlobalCORS(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "http://example.com")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "*")
 	}
 }
 
@@ -145,8 +145,8 @@ func TestWithMiddleware_MixedGlobalAndRoute(t *testing.T) {
 	defer resp.Body.Close()
 
 	// CORS should run as global middleware.
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "http://example.com")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "*")
 	}
 
 	// Custom route middleware should also run.

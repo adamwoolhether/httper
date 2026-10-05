@@ -114,6 +114,48 @@ func TestCORS_Preflight(t *testing.T) {
 	}
 }
 
+func TestCORS_AllowAll(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodOptions} {
+		t.Run(method, func(t *testing.T) {
+			handler := middleware.CORS([]string{"*"})(okHandler)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(method, "/", nil)
+			r.Header.Set("Origin", "https://any.com")
+
+			if err := handler(r.Context(), w, r); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "*")
+			}
+			if got, ok := w.Header()["Access-Control-Allow-Credentials"]; ok {
+				t.Errorf("Access-Control-Allow-Credentials = %q, want header absent", got)
+			}
+		})
+	}
+}
+
+func TestCORS_WildcardOriginReflected(t *testing.T) {
+	handler := middleware.CORS([]string{"https://*.example.com"})(okHandler)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Origin", "https://api.example.com")
+
+	if err := handler(r.Context(), w, r); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://api.example.com" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "https://api.example.com")
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want %q", got, "true")
+	}
+}
+
 func TestCORS_DefaultHeaders(t *testing.T) {
 	cors := middleware.CORS([]string{"*"})
 	handler := cors(okHandler)
@@ -178,6 +220,56 @@ func TestCheckOriginFunc(t *testing.T) {
 			allowed: []string{"https://a.com,https://b.com"},
 			origin:  "https://b.com",
 			want:    true,
+		},
+		"comma-separated with spaces": {
+			allowed: []string{"https://a.com, https://b.com "},
+			origin:  "https://b.com",
+			want:    true,
+		},
+		"star in comma-separated list": {
+			allowed: []string{"https://a.com, *"},
+			origin:  "https://anything.com",
+			want:    true,
+		},
+		"wildcard matches one label only": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "https://a.b.example.com",
+			want:    false,
+		},
+		"wildcard needs a label": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "https://.example.com",
+			want:    false,
+		},
+		"wildcard excludes apex": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "https://example.com",
+			want:    false,
+		},
+		"wildcard keeps port": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "https://api.example.com:8443",
+			want:    false,
+		},
+		"wildcard keeps scheme": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "http://api.example.com",
+			want:    false,
+		},
+		"wildcard rejects suffix host": {
+			allowed: []string{"https://*.example.com"},
+			origin:  "https://api.example.com.evil.com",
+			want:    false,
+		},
+		"wildcard with port": {
+			allowed: []string{"https://*.example.com:8443"},
+			origin:  "https://api.example.com:8443",
+			want:    true,
+		},
+		"multiple wildcards match nothing": {
+			allowed: []string{"https://*.*.example.com"},
+			origin:  "https://a.b.example.com",
+			want:    false,
 		},
 	}
 
