@@ -437,7 +437,7 @@ web.QueryInt64(r, "ts")   // int64
 
 **Decode & Respond:**
 ```go
-web.Decode(r, &input)                        // JSON decode + validate; does not limit the body size
+web.Decode(r, &input)                        // JSON decode; validates a struct or slice of structs; no body limit
 web.DecodeLimit(w, r, &input, maxBytes)      // Decode with the body limited to maxBytes
 web.RespondJSON(ctx, w, statusCode, data)    // JSON response
 web.RespondError(ctx, w, errsErr)            // structured error response

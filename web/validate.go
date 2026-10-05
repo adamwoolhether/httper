@@ -3,6 +3,7 @@ package web
 import (
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/adamwoolhether/httper/web/errs"
 
@@ -39,24 +40,56 @@ func init() {
 
 // Validate that the provided model against its declared tags.
 func Validate(val any) error {
-	if err := validate.Struct(val); err != nil {
-		verrors, ok := err.(validator.ValidationErrors)
-		if !ok {
-			return err
-		}
+	return fieldErrors(validate.Struct(val), validator.FieldError.Field)
+}
 
-		var fields errs.FieldErrors
-		for _, verror := range verrors {
-			field := errs.FieldError{
-				Field: verror.Field(),
-				Err:   customErrForTag(verror.Tag(), verror),
-			}
-			fields = append(fields, field)
+// validateDecoded validates a decoded struct, or each struct in a decoded
+// slice, and skips every other type.
+func validateDecoded(val any) error {
+	v := reflect.ValueOf(val)
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
 		}
-		return fields
+		v = v.Elem()
+	}
+
+	switch {
+	case isModel(v.Type()):
+		return Validate(v.Interface())
+	case v.Kind() == reflect.Slice && isModel(v.Type().Elem()):
+		return fieldErrors(validate.Var(v.Interface(), "dive"), validator.FieldError.Namespace)
 	}
 
 	return nil
+}
+
+// isModel reports whether t, after pointer indirection, is a struct that the
+// validator accepts. The validator rejects time.Time.
+func isModel(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	return t.Kind() == reflect.Struct && t != reflect.TypeFor[time.Time]()
+}
+
+func fieldErrors(err error, name func(validator.FieldError) string) error {
+	verrors, ok := err.(validator.ValidationErrors)
+	if !ok {
+		return err
+	}
+
+	var fields errs.FieldErrors
+	for _, verror := range verrors {
+		field := errs.FieldError{
+			Field: name(verror),
+			Err:   customErrForTag(verror.Tag(), verror),
+		}
+		fields = append(fields, field)
+	}
+
+	return fields
 }
 
 func customErrForTag(tag string, verror validator.FieldError) string {

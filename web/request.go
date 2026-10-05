@@ -104,8 +104,9 @@ func QueryInt64(r *http.Request, key string) (int64, error) {
 
 // Decode reads the body of an HTTP request looking for a JSON document. The
 // body is decoded into the provided value.
-// If the provided value is a struct then it is checked for validation tags.
-// If the value implements a validate function, it is executed.
+// If the value is a struct or a slice of structs, Decode checks the validation
+// tags of each struct. A field error in a slice element names the element
+// index, such as "[1].name". Decode does not validate other types.
 // Decode does not limit the body size. Use DecodeLimit, or wrap r.Body
 // with http.MaxBytesReader before calling Decode.
 func Decode[T any](r *http.Request, val *T) error {
@@ -115,7 +116,7 @@ func Decode[T any](r *http.Request, val *T) error {
 		return fmt.Errorf("decode: %w", err)
 	}
 
-	if err := Validate(val); err != nil {
+	if err := validateDecoded(val); err != nil {
 		return err
 	}
 
@@ -130,7 +131,7 @@ func DecodeAllowUnknownFields[T any](r *http.Request, val *T) error {
 		return fmt.Errorf("decode: %w", err)
 	}
 
-	if err := Validate(val); err != nil {
+	if err := validateDecoded(val); err != nil {
 		return err
 	}
 

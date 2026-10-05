@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adamwoolhether/httper/web"
+	"github.com/adamwoolhether/httper/web/errs"
 )
 
 // ---- Param ----
@@ -286,6 +288,111 @@ func TestDecodeAllowUnknownFields(t *testing.T) {
 	if p.Name != "Bob" {
 		t.Fatalf("Name = %q, want %q", p.Name, "Bob")
 	}
+}
+
+func TestDecode_NonStructTargets(t *testing.T) {
+	t.Run("map", func(t *testing.T) {
+		got := mustDecode[map[string]any](t, `{"name":"Alice"}`)
+		if got["name"] != "Alice" {
+			t.Fatalf("name = %v, want %q", got["name"], "Alice")
+		}
+	})
+
+	t.Run("string slice", func(t *testing.T) {
+		got := mustDecode[[]string](t, `["a","b"]`)
+		if len(got) != 2 || got[1] != "b" {
+			t.Fatalf("got %v, want [a b]", got)
+		}
+	})
+
+	t.Run("int", func(t *testing.T) {
+		if got := mustDecode[int](t, `42`); got != 42 {
+			t.Fatalf("got %d, want 42", got)
+		}
+	})
+
+	t.Run("time", func(t *testing.T) {
+		want := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+		if got := mustDecode[time.Time](t, `"2026-10-05T00:00:00Z"`); !got.Equal(want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("allow unknown fields map", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"Alice"}`))
+
+		var got map[string]any
+		if err := web.DecodeAllowUnknownFields(r, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got["name"] != "Alice" {
+			t.Fatalf("name = %v, want %q", got["name"], "Alice")
+		}
+	})
+}
+
+func TestDecode_PointerToStruct(t *testing.T) {
+	got := mustDecode[*testPayload](t, `{"name":"Alice","email":"alice@example.com"}`)
+	if got == nil || got.Name != "Alice" {
+		t.Fatalf("got %+v, want Name %q", got, "Alice")
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"","email":"alice@example.com"}`))
+
+	var p *testPayload
+	fields := errs.GetFieldErrors(web.Decode(r, &p)).Fields()
+	if fields["name"] != "This field is required" {
+		t.Fatalf("field errors = %v, want name required", fields)
+	}
+}
+
+func TestDecode_StructSlice(t *testing.T) {
+	valid := `[{"name":"Alice","email":"alice@example.com"},{"name":"Bob","email":"bob@example.com"}]`
+	invalid := `[{"name":"Alice","email":"alice@example.com"},{"name":"","email":"not-an-email"}]`
+
+	t.Run("valid", func(t *testing.T) {
+		if got := mustDecode[[]testPayload](t, valid); len(got) != 2 || got[1].Name != "Bob" {
+			t.Fatalf("got %+v, want two payloads", got)
+		}
+	})
+
+	t.Run("invalid element", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(invalid))
+
+		var got []testPayload
+		fields := errs.GetFieldErrors(web.Decode(r, &got)).Fields()
+		if fields["[1].name"] != "This field is required" {
+			t.Fatalf("field errors = %v, want [1].name required", fields)
+		}
+		if _, ok := fields["[1].email"]; !ok {
+			t.Fatalf("field errors = %v, want [1].email", fields)
+		}
+		if len(fields) != 2 {
+			t.Fatalf("field errors = %v, want only element 1 errors", fields)
+		}
+	})
+
+	t.Run("invalid pointer element", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(invalid))
+
+		var got []*testPayload
+		fields := errs.GetFieldErrors(web.Decode(r, &got)).Fields()
+		if fields["[1].name"] != "This field is required" {
+			t.Fatalf("field errors = %v, want [1].name required", fields)
+		}
+	})
+}
+
+func mustDecode[T any](t *testing.T, body string) T {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+
+	var v T
+	if err := web.Decode(r, &v); err != nil {
+		t.Fatalf("Decode into %T: %v", v, err)
+	}
+
+	return v
 }
 
 func TestDecodeLimit(t *testing.T) {
