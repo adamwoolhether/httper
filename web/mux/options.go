@@ -14,7 +14,7 @@ import (
 
 type Option func(*options)
 
-// options represents optional parameters.
+// options represent optional parameters.
 type options struct {
 	staticFS   Handler
 	staticPath string
@@ -73,34 +73,34 @@ func WithMiddleware(mw ...Middleware) Option {
 		mwSorted[i] = v.fn
 	}
 
-	return Option(func(opts *options) {
+	return func(opts *options) {
 		opts.globalMW = globalSorted
 		opts.mw = mwSorted
-	})
+	}
 }
 
 // WithTracer injects the given tracer into the App.
 func WithTracer(tracer trace.Tracer) Option {
-	return Option(func(opts *options) {
+	return func(opts *options) {
 		opts.tracer = tracer
-	})
+	}
 }
 
 // WithLogger sets the logger used by the App for internal errors.
 func WithLogger(log *slog.Logger) Option {
-	return Option(func(opts *options) {
+	return func(opts *options) {
 		opts.logger = log
-	})
+	}
 }
 
 // WithStaticFS serves static files from fsys under the given URL path prefix.
 // The prefix is stripped before looking up files in fsys.
 func WithStaticFS(fsys fs.FS, pathPrefix string) Option {
-	return Option(func(opts *options) {
+	return func(opts *options) {
 		fsHandler := http.StripPrefix(pathPrefix, http.FileServer(http.FS(fsys)))
 		opts.staticFS = adapt(fsHandler)
 		opts.staticPath = pathPrefix
-	})
+	}
 }
 
 func name(mw Middleware) string {
