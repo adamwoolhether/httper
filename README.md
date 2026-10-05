@@ -31,6 +31,7 @@ This is meant to be lightweight, a mere wrapper around the standard library.
   - [Request & Response Helpers](#request--response-helpers)
   - [Structured Errors](#structured-errors)
   - [Web Options Reference](#web-options-reference)
+- [Releasing](#releasing)
 
 ## Install
 
@@ -479,6 +480,34 @@ server.WithTLS(certFile, keyFile)     // Enable TLS
 ```
 
 ---
+
+## Releasing
+
+The repository releases `client` and `web` as independent Go modules. Git tags point to a complete commit. The `client/` or `web/` prefix selects the module from that commit.
+
+Release from an up-to-date `main` branch after the change merges:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git status --short
+git tag --list 'client/v*' --sort=-v:refname | head -1
+git tag --list 'web/v*' --sort=-v:refname | head -1
+```
+
+Choose the next semantic version for each changed module. Replace `vX.Y.Z` and `vPREVIOUS` before running these commands:
+
+```sh
+git tag -a client/vX.Y.Z HEAD -m "client vX.Y.Z"
+git tag -a web/vX.Y.Z HEAD -m "web vX.Y.Z"
+
+git diff client/vPREVIOUS..client/vX.Y.Z -- client
+git diff web/vPREVIOUS..web/vX.Y.Z -- web
+
+git push origin client/vX.Y.Z web/vX.Y.Z
+```
+
+Tag only modules that changed. Each pushed tag starts a separate Release workflow and creates a GitHub release.
 
 ## Thanks
 This grew over the years, originally based on knowledge obtained from [Powerful Command-Line Applications in Go](https://pragprog.com/titles/rggo/powerful-command-line-applications-in-go/) by [Ricardo Gerardi](https://github.com/rgerardi).
