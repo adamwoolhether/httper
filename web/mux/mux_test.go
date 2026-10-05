@@ -400,6 +400,20 @@ func TestApp_VirtualHost(t *testing.T) {
 	}
 }
 
+func TestApp_VirtualHost_NonASCIIHost(t *testing.T) {
+	app := mux.New()
+	app.VirtualHost("kiwi.example.com").Get("/admin", body("admin"))
+
+	r := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	r.Host = "\u212Aiwi.example.com"
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Kelvin sign host: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
 func TestApp_HandlerSeesLowercaseHost(t *testing.T) {
 	app := mux.New()
 	app.Get("/host", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {

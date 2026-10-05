@@ -74,7 +74,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var routed *http.Request
 	serveHTTP := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		routed = r
-		if host := strings.ToLower(r.Host); host != r.Host {
+		if host := lowerASCII(r.Host); host != r.Host {
 			routed = r.WithContext(r.Context())
 			routed.Host = host
 		}
@@ -259,4 +259,15 @@ func wrap(mw []Middleware, handler Handler) Handler {
 	}
 
 	return handler
+}
+
+// lowerASCII lowercases only ASCII letters. strings.ToLower would also map
+// characters such as the Kelvin sign to ASCII and match a virtual host.
+func lowerASCII(s string) string {
+	return strings.Map(func(c rune) rune {
+		if 'A' <= c && c <= 'Z' {
+			return c + 'a' - 'A'
+		}
+		return c
+	}, s)
 }
