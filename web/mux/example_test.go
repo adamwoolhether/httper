@@ -120,6 +120,28 @@ func ExampleApp_Mount() {
 	// Output: v1 users
 }
 
+func ExampleApp_VirtualHost() {
+	app := mux.New()
+
+	api := app.VirtualHost("api.example.com")
+	api.Get("/status", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		fmt.Fprint(w, "api status")
+		return nil
+	})
+
+	for _, host := range []string{"api.example.com", "www.example.com"} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/status", nil)
+		r.Host = host
+		app.ServeHTTP(w, r)
+
+		fmt.Println(host, w.Code)
+	}
+	// Output:
+	// api.example.com 200
+	// www.example.com 404
+}
+
 func ExampleApp_Use() {
 	app := mux.New()
 

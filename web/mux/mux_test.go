@@ -359,6 +359,73 @@ func TestApp_Handle_GroupNormalization(t *testing.T) {
 	}
 }
 
+func TestApp_VirtualHost(t *testing.T) {
+	app := mux.New()
+	app.Get("/users", body("any host"))
+	app.VirtualHost("API.example.com").Get("users", body("api host"))
+
+	tests := map[string]struct {
+		host string
+		want string
+	}{
+		"matching host":       {host: "api.example.com", want: "api host"},
+		"matching host, port": {host: "api.example.com:8443", want: "api host"},
+		"other host":          {host: "other.example.com", want: "any host"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/users", nil)
+			r.Host = tc.host
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK || w.Body.String() != tc.want {
+				t.Fatalf("Host %s: status = %d, body = %q, want 200 %q", tc.host, w.Code, w.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestApp_VirtualHost_Composition(t *testing.T) {
+	tests := map[string]func(app *mux.App) *mux.App{
+		"host then mount":    func(app *mux.App) *mux.App { return app.VirtualHost("api.example.com").Mount("v1") },
+		"mount then host":    func(app *mux.App) *mux.App { return app.Mount("v1").VirtualHost("api.example.com") },
+		"host, mount, group": func(app *mux.App) *mux.App { return app.VirtualHost("api.example.com").Mount("v1").Group() },
+	}
+
+	for name, scope := range tests {
+		t.Run(name, func(t *testing.T) {
+			app := mux.New()
+			scope(app).Get("users", body("ok"))
+
+			for host, want := range map[string]int{"api.example.com": http.StatusOK, "other.example.com": http.StatusNotFound} {
+				r := httptest.NewRequest(http.MethodGet, "/v1/users", nil)
+				r.Host = host
+				w := httptest.NewRecorder()
+				app.ServeHTTP(w, r)
+
+				if w.Code != want {
+					t.Fatalf("Host %s GET /v1/users status = %d, want %d", host, w.Code, want)
+				}
+			}
+		})
+	}
+}
+
+func TestApp_VirtualHost_Invalid(t *testing.T) {
+	for _, host := range []string{"", "https://api.example.com", "api.example.com:8443", "api.example.com/v1", "*.example.com"} {
+		t.Run(host, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("VirtualHost(%q) did not panic", host)
+				}
+			}()
+			mux.New().VirtualHost(host)
+		})
+	}
+}
+
 func TestApp_Use(t *testing.T) {
 	app := mux.New()
 	app.Use(func(handler mux.Handler) mux.Handler {
@@ -731,6 +798,13 @@ func TestApp_FullStack_TraceIDInLogs(t *testing.T) {
 				t.Fatalf("log line missing traceID: %s", line)
 			}
 		}
+	}
+}
+
+func body(text string) mux.Handler {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		_, err := io.WriteString(w, text)
+		return err
 	}
 }
 

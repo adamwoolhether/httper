@@ -348,6 +348,7 @@ app.HandleNoMiddleware(method, group, path, handler)  // skip all route middlewa
 `Group()` shares the same ServeMux and prefix but gets an independent middleware stack.
 `Mount(prefix)` scopes all routes under a URL prefix. A nested `Mount` adds to the current prefix, so `app.Mount("api").Mount("v1")` serves routes under `/api/v1`.
 Prefixes and route paths work with or without a leading slash.
+`VirtualHost(host)` scopes routes to requests whose `Host` header is `host`. Routes without a virtual host match every host. A virtual host route matches only when the request names that host, so a request to `localhost` or an IP address does not reach it.
 
 ```go
 api := app.Mount("api/v1")
@@ -359,6 +360,10 @@ api.Post("/users", createUser)
 // Public group: no auth middleware
 pub := app.Group()
 pub.Get("/health", healthCheck)
+
+// Routes for one host only
+admin := app.VirtualHost("admin.example.com")
+admin.Get("/dashboard", dashboard)
 ```
 
 ### Server

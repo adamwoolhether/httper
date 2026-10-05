@@ -25,6 +25,7 @@ type App struct {
 	globalMW []Middleware
 	mw       []Middleware
 	group    string
+	host     string
 	logger   *slog.Logger
 	tracer   trace.Tracer
 }
@@ -79,14 +80,15 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Group returns a new App that shares the same underlying ServeMux,
-// tracer, and route prefix but has an independent middleware stack.
+// Group returns a new App that shares the same underlying ServeMux, tracer,
+// route prefix, and virtual host but has an independent middleware stack.
 func (a *App) Group() *App {
 	return &App{
 		mux:      a.mux,
 		globalMW: a.globalMW,
 		mw:       slices.Clone(a.mw),
 		group:    a.group,
+		host:     a.host,
 		logger:   a.logger,
 		tracer:   a.tracer,
 	}
@@ -98,6 +100,22 @@ func (a *App) Group() *App {
 func (a *App) Mount(subRoute string) *App {
 	sub := a.Group()
 	sub.group = path.Join(a.group, subRoute)
+	return sub
+}
+
+// VirtualHost returns a new App whose routes match only requests for host,
+// such as "api.example.com". Routes without a virtual host match every host,
+// and a virtual host route takes precedence over them for its host.
+// The host is lowercased and must have no scheme, port, path, or wildcard,
+// because ServeMux ignores the request port and never matches those forms.
+// VirtualHost panics if host is invalid.
+func (a *App) VirtualHost(host string) *App {
+	if host == "" || strings.ContainsAny(host, "/:*") {
+		panic(fmt.Sprintf("mux: invalid virtual host %q", host))
+	}
+
+	sub := a.Group()
+	sub.host = strings.ToLower(host)
 	return sub
 }
 
@@ -157,7 +175,7 @@ func (a *App) Handle(method, group, path string, handler Handler, mw ...Middlewa
 		}
 	}
 
-	pattern := fmt.Sprintf("%s %s", method, routePath(group, path))
+	pattern := fmt.Sprintf("%s %s%s", method, a.host, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
 }
@@ -175,7 +193,7 @@ func (a *App) HandleNoMiddleware(method, group, path string, handler Handler) {
 		}
 	}
 
-	pattern := fmt.Sprintf("%s %s", method, routePath(group, path))
+	pattern := fmt.Sprintf("%s %s%s", method, a.host, routePath(group, path))
 
 	a.mux.HandleFunc(pattern, h)
 }
