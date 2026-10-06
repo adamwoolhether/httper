@@ -43,34 +43,42 @@ func (t *throttle) RoundTrip(r *http.Request) (*http.Response, error) {
 		return t.next.RoundTrip(r)
 	}
 
-	ctx := r.Context()
-
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("%w early: %w", ErrContextEnded, err)
-	}
-
-	var waited time.Duration
-	logger := t.logFn()
-	if logger != nil && t.limiter.Tokens() < 1 {
-		rps := float64(t.limiter.Limit())
-		logger.Info("throttle tokens exhausted", "rate", rps, "burst", t.burst, "path", r.URL.Path)
-
-		defer func() {
-			logger.Info("throttle wait complete", "waited", waited.String(), "rate", rps, "burst", t.burst)
-		}()
-	}
-
-	start := time.Now()
-
-	err := t.limiter.Wait(ctx)
-	waited = time.Since(start)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrWaitingFailed, err)
-	}
-
-	if err := ctx.Err(); err != nil { // Check context hasn't expired again.
-		return nil, fmt.Errorf("%w post-wait: %w", ErrContextEnded, err)
+	if err := t.wait(r); err != nil {
+		// The RoundTripper contract makes the transport close the body on errors too; http.Client does not.
+		// The wait error is the one to report, so a close error adds nothing.
+		if r.Body != nil {
+			_ = r.Body.Close()
+		}
+		return nil, err
 	}
 
 	return t.next.RoundTrip(r)
+}
+
+func (t *throttle) wait(r *http.Request) error {
+	ctx := r.Context()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w early: %w", ErrContextEnded, err)
+	}
+
+	logger := t.logFn()
+	exhausted := logger != nil && logger.Enabled(ctx, slog.LevelDebug) && t.limiter.Tokens() < 1
+	if exhausted {
+		logger.DebugContext(ctx, "throttle tokens exhausted", "rate", float64(t.limiter.Limit()), "burst", t.burst, "path", r.URL.Path)
+	}
+
+	start := time.Now()
+	if err := t.limiter.Wait(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrWaitingFailed, err)
+	}
+	if exhausted {
+		logger.DebugContext(ctx, "throttle wait complete", "waited", time.Since(start).String(), "rate", float64(t.limiter.Limit()), "burst", t.burst)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w post-wait: %w", ErrContextEnded, err)
+	}
+
+	return nil
 }

@@ -667,16 +667,24 @@ func TestClient_WithThrottleEvery_Burst(t *testing.T) {
 		t.Fatalf("creating client: %v", err)
 	}
 
-	// A request whose token wait would pass its deadline fails at once, so only the burst reaches the server.
-	for range 3 {
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	// An hour per token makes any wait past the burst exceed this deadline, so the limiter fails it at once.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	send := func() error {
 		req, err := c.Request(ctx, u, http.MethodGet)
 		if err != nil {
-			cancel()
-			t.Fatalf("creating request: %v", err)
+			return err
 		}
-		_ = c.Do(req, http.StatusOK)
-		cancel()
+		return doWithin(t, time.Second, c, req)
+	}
+
+	for i := range 2 {
+		if err := send(); err != nil {
+			t.Fatalf("request %d within the burst of 2: %v", i+1, err)
+		}
+	}
+	if err := send(); !errors.Is(err, throttle.ErrWaitingFailed) {
+		t.Errorf("expected request 3 to fail its token wait, got: %v", err)
 	}
 
 	if n := sent.Load(); n != 2 {
@@ -715,13 +723,9 @@ func TestClient_WithThrottleEvery_CanceledDuringWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
-	err = c.Do(req, http.StatusOK)
 
-	if !errors.Is(err, context.Canceled) {
+	if err := doWithin(t, time.Second, c, req); !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got: %v", err)
-	}
-	if !errors.Is(err, throttle.ErrWaitingFailed) {
-		t.Errorf("expected the cancel to end the throttle wait, got: %v", err)
 	}
 	if n := sent.Load(); n != 1 {
 		t.Errorf("expected only the first request to reach the server, got %d", n)
