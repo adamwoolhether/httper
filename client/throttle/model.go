@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	// ErrMustNotBeZero indicates that RPS and burst must be positive.
+	// ErrMustNotBeZero indicates that the rate or interval and the burst must be positive.
 	ErrMustNotBeZero = errors.New("must be greater than zero")
 	// ErrWaitingFailed indicates the rate limiter's wait call failed.
 	ErrWaitingFailed = errors.New("limiter waiting failed")
@@ -17,17 +17,10 @@ var (
 	ErrContextEnded = errors.New("throttle context ended")
 )
 
-// Config defines the throttler's rate-limiting parameters: requests per second (RPS) and burst capacity.
-type Config struct {
-	RPS   int
-	Burst int
-}
-
 // throttle is an http.RoundTripper, using the time/rate token
 // bucket limiter to restrict outbound calls.
 type throttle struct {
 	limiter *rate.Limiter
-	rps     int
 	burst   int
 	next    http.RoundTripper
 	logFn   func() *slog.Logger

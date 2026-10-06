@@ -17,7 +17,7 @@ type options struct {
 	rt                http.RoundTripper
 	timeout           *time.Duration
 	userAgent         string
-	throttle          *throttle.Config
+	throttle          func(logFn func() *slog.Logger, next http.RoundTripper) (http.RoundTripper, error)
 	retry             retryConfig
 	noFollowRedirects bool
 	logger            *slog.Logger
@@ -71,7 +71,23 @@ func WithThrottle(rps, burst int) Option {
 		if rps <= 0 || burst <= 0 {
 			return fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, throttle.ErrMustNotBeZero)
 		}
-		c.throttle = &throttle.Config{RPS: rps, Burst: burst}
+		c.throttle = func(logFn func() *slog.Logger, next http.RoundTripper) (http.RoundTripper, error) {
+			return throttle.NewRoundTripper(rps, burst, logFn, next)
+		}
+		return nil
+	}
+}
+
+// WithThrottleEvery enables token-bucket rate limiting at one request per interval, with the given burst capacity.
+// For a limit of n requests per minute, pass time.Minute/time.Duration(n).
+func WithThrottleEvery(interval time.Duration, burst int) Option {
+	return func(c *options) error {
+		if interval <= 0 || burst <= 0 {
+			return fmt.Errorf("interval[%s] and burst[%d] %w", interval, burst, throttle.ErrMustNotBeZero)
+		}
+		c.throttle = func(logFn func() *slog.Logger, next http.RoundTripper) (http.RoundTripper, error) {
+			return throttle.NewRoundTripperEvery(interval, burst, logFn, next)
+		}
 		return nil
 	}
 }

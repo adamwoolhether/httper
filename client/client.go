@@ -12,7 +12,6 @@ import (
 	"net/url"
 
 	"github.com/adamwoolhether/httper/client/download"
-	"github.com/adamwoolhether/httper/client/throttle"
 )
 
 // Client wraps the std-lib *http.Client
@@ -67,7 +66,7 @@ func Build(optFns ...Option) (*Client, error) {
 		transport = userAgent{value: opts.userAgent, base: transport}
 	}
 	if opts.throttle != nil {
-		rt, err := throttle.NewRoundTripper(opts.throttle.RPS, opts.throttle.Burst, func() *slog.Logger { return opts.logger }, transport)
+		rt, err := opts.throttle(func() *slog.Logger { return opts.logger }, transport)
 		if err != nil {
 			return nil, fmt.Errorf("configuring throttle: %w", err)
 		}
