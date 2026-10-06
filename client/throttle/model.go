@@ -17,14 +17,6 @@ var (
 	ErrContextEnded = errors.New("throttle context ended")
 )
 
-// Config holds a requests-per-second rate (RPS) and a burst capacity.
-//
-// Deprecated: nothing in this module reads Config. Use [NewRoundTripper] or [NewRoundTripperEvery].
-type Config struct {
-	RPS   int
-	Burst int
-}
-
 // throttle is an http.RoundTripper, using the time/rate token
 // bucket limiter to restrict outbound calls.
 type throttle struct {
