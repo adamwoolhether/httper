@@ -96,6 +96,22 @@ func doGet(t *testing.T, u *url.URL, opts ...client.Option) error {
 	return c.Do(req, http.StatusOK)
 }
 
+// doWithin fails the test when Do outlives limit, so a wait that ignores its context fails fast instead of hanging.
+func doWithin(t *testing.T, limit time.Duration, c *client.Client, req *http.Request) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() { done <- c.Do(req, http.StatusOK) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(limit):
+		t.Fatalf("expected Do to return within %v", limit)
+		return nil
+	}
+}
+
 func assertStatus(t *testing.T, err error, want int) {
 	t.Helper()
 
@@ -392,7 +408,7 @@ func TestClient_Retry_CanceledDuringThrottleWait(t *testing.T) {
 		t.Fatalf("creating request: %v", err)
 	}
 
-	if err := c.Do(req, http.StatusOK); !errors.Is(err, context.Canceled) {
+	if err := doWithin(t, time.Second, c, req); !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got: %v", err)
 	}
 	if body.closes != 1 {
