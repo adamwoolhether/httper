@@ -181,6 +181,14 @@ c, err := client.Build(
 )
 ```
 
+For a rate that whole requests per second cannot express, such as a per-minute limit, set the interval between requests instead:
+
+```go
+c, err := client.Build(
+	client.WithThrottleEvery(time.Minute/3500, 1), // 3500 req/min, burst of 1
+)
+```
+
 #### Retries
 
 Send a request again after a 429 or 5xx response. The retry honors `Retry-After`; without it, the retry backs off exponentially with jitter.
@@ -217,6 +225,7 @@ client.WithTransport(rt)         // Set a custom http.RoundTripper
 client.WithTimeout(d)            // Set the overall request timeout
 client.WithUserAgent(s)          // Add a persistent User-Agent header
 client.WithThrottle(rps, burst)  // Enable token-bucket rate limiting
+client.WithThrottleEvery(d, b)   // Enable token-bucket rate limiting at one request per d, burst b
 client.WithRetry(n, opts...)     // Retry 429 and 5xx responses up to n times
 client.WithNoFollowRedirects()   // Prevent following HTTP redirects
 client.WithLogger(l)             // Inject a custom slog.Logger
