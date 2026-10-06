@@ -106,13 +106,20 @@ func QueryInt64(r *http.Request, key string) (int64, error) {
 // QueryStrings extracts every value of a query parameter by key. It reads
 // repeated keys and splits each value on commas, so ?id=1,2&id=3 yields
 // "1", "2", "3". An empty value, such as in ?id=1,,2, returns an error.
+// A value cannot contain a comma, even when percent-encoded as %2C, because
+// QueryStrings splits after decoding.
 func QueryStrings(r *http.Request, key string) ([]string, error) {
 	raw := r.URL.Query()[key]
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("query param[%s] not found", key)
 	}
 
-	var vals []string
+	n := 0
+	for _, v := range raw {
+		n += strings.Count(v, ",") + 1
+	}
+
+	vals := make([]string, 0, n)
 	for _, v := range raw {
 		for s := range strings.SplitSeq(v, ",") {
 			if s == "" {
