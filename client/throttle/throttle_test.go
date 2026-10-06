@@ -447,12 +447,12 @@ func TestThrottleRoundTripper_ClosesBodyOnError(t *testing.T) {
 	defer cancelBeforeToken()
 
 	tests := map[string]struct {
-		ctx        context.Context
-		spendToken bool
-		wantErr    error
+		ctx     context.Context
+		spent   int
+		wantErr error
 	}{
 		"early context check":     {ctx: canceled, wantErr: ErrContextEnded},
-		"failed wait":             {ctx: beforeToken, spendToken: true, wantErr: ErrWaitingFailed},
+		"failed wait":             {ctx: beforeToken, spent: 1, wantErr: ErrWaitingFailed},
 		"post-wait context check": {ctx: &endsAfterFirstCheck{Context: t.Context()}, wantErr: ErrContextEnded},
 	}
 
@@ -468,16 +468,16 @@ func TestThrottleRoundTripper_ClosesBodyOnError(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if tc.spendToken {
+			for range tc.spent {
 				spend, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid", nil)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if _, err := rt.RoundTrip(spend); err != nil {
-					t.Fatalf("spending the burst token: %v", err)
+					t.Fatalf("spending a token: %v", err)
 				}
-				sent = 0
 			}
+			sent = 0
 
 			body := &closeCounter{Reader: strings.NewReader("payload")}
 			req, err := http.NewRequestWithContext(tc.ctx, http.MethodPost, "http://example.invalid", body)
@@ -528,8 +528,8 @@ func TestThrottleRoundTripper_PassesRequestOn(t *testing.T) {
 
 func TestThrottleRoundTripper_LogsAtDebug(t *testing.T) {
 	var logs bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	rt, err := NewRoundTripperEvery(200*time.Millisecond, 1, func() *slog.Logger { return logger }, http.DefaultTransport)
+	logger := slog.New(requestScoped{slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})})
+	rt, err := NewRoundTripperEvery(400*time.Millisecond, 1, func() *slog.Logger { return logger }, http.DefaultTransport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestThrottleRoundTripper_LogsAtDebug(t *testing.T) {
 	client := &http.Client{Transport: rt}
 
 	send := func(ctx context.Context) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		req, err := http.NewRequestWithContext(context.WithValue(ctx, requestKey{}, true), http.MethodGet, server.URL, nil)
 		if err != nil {
 			return err
 		}
@@ -581,13 +581,21 @@ func TestThrottleRoundTripper_LogsAtDebug(t *testing.T) {
 	}
 }
 
+type requestKey struct{}
+
+// requestScoped drops a record whose context lacks requestKey, so a line logged without the request context goes missing.
+type requestScoped struct{ slog.Handler }
+
+func (h requestScoped) Enabled(ctx context.Context, level slog.Level) bool {
+	return ctx.Value(requestKey{}) != nil && h.Handler.Enabled(ctx, level)
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
 
-// closeCounter is a request body that counts its Close calls.
 type closeCounter struct {
 	io.Reader
 	closes int

@@ -45,6 +45,7 @@ func (t *throttle) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	if err := t.wait(r); err != nil {
 		// The RoundTripper contract makes the transport close the body on errors too; http.Client does not.
+		// The wait error is the one to report, so a close error adds nothing.
 		if r.Body != nil {
 			_ = r.Body.Close()
 		}
@@ -64,7 +65,7 @@ func (t *throttle) wait(r *http.Request) error {
 	logger := t.logFn()
 	exhausted := logger != nil && logger.Enabled(ctx, slog.LevelDebug) && t.limiter.Tokens() < 1
 	if exhausted {
-		logger.Debug("throttle tokens exhausted", "rate", float64(t.limiter.Limit()), "burst", t.burst, "path", r.URL.Path)
+		logger.DebugContext(ctx, "throttle tokens exhausted", "rate", float64(t.limiter.Limit()), "burst", t.burst, "path", r.URL.Path)
 	}
 
 	start := time.Now()
@@ -72,7 +73,7 @@ func (t *throttle) wait(r *http.Request) error {
 		return fmt.Errorf("%w: %w", ErrWaitingFailed, err)
 	}
 	if exhausted {
-		logger.Debug("throttle wait complete", "waited", time.Since(start).String(), "rate", float64(t.limiter.Limit()), "burst", t.burst)
+		logger.DebugContext(ctx, "throttle wait complete", "waited", time.Since(start).String(), "rate", float64(t.limiter.Limit()), "burst", t.burst)
 	}
 
 	if err := ctx.Err(); err != nil {

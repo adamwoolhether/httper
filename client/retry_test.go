@@ -413,7 +413,6 @@ func TestClient_Retry_SharedHTTPClient(t *testing.T) {
 	assertAttempts(t, got, 1)
 }
 
-// trackedBody counts its Close calls; Len reports what a reader left unread.
 type trackedBody struct {
 	*strings.Reader
 	closes int
