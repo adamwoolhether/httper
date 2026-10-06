@@ -652,6 +652,38 @@ func TestClient_WithThrottleEvery(t *testing.T) {
 	}
 }
 
+func TestClient_WithThrottleEvery_Burst(t *testing.T) {
+	var sent atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
+	defer ts.Close()
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build(client.WithThrottleEvery(time.Hour, 2))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	// A request whose token wait would pass its deadline fails at once, so only the burst reaches the server.
+	for range 3 {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		req, err := c.Request(ctx, u, http.MethodGet)
+		if err != nil {
+			cancel()
+			t.Fatalf("creating request: %v", err)
+		}
+		_ = c.Do(req, http.StatusOK)
+		cancel()
+	}
+
+	if n := sent.Load(); n != 2 {
+		t.Errorf("expected the burst of 2 to reach the server, got %d", n)
+	}
+}
+
 func TestClient_WithThrottleEvery_CanceledDuringWait(t *testing.T) {
 	var sent atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
