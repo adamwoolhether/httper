@@ -109,6 +109,58 @@ func ExampleQueryInt64() {
 	// Output: 8000000000
 }
 
+func ExampleQueryStrings() {
+	r := httptest.NewRequest(http.MethodGet, "/items?tag=go,http&tag=web", nil)
+
+	tags, err := web.QueryStrings(r, "tag")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(tags)
+	// Output: [go http web]
+}
+
+func ExampleQueryBools() {
+	r := httptest.NewRequest(http.MethodGet, "/items?flag=true,false", nil)
+
+	flags, err := web.QueryBools(r, "flag")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(flags)
+	// Output: [true false]
+}
+
+func ExampleQueryInts() {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=1,2&id=3", nil)
+
+	ids, err := web.QueryInts(r, "id")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(ids)
+	// Output: [1 2 3]
+}
+
+func ExampleQueryInt64s() {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=8000000000&id=8000000001", nil)
+
+	ids, err := web.QueryInt64s(r, "id")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(ids)
+	// Output: [8000000000 8000000001]
+}
+
 // ————————————————————————————————————————————————————————————————————
 // Decode examples
 // ————————————————————————————————————————————————————————————————————

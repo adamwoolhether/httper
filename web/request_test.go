@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -219,6 +220,138 @@ func TestQueryInt64_Missing(t *testing.T) {
 
 	_, err := web.QueryInt64(r, "offset")
 	if err == nil {
+		t.Fatal("expected error for missing query param")
+	}
+}
+
+func TestQueryStrings(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   []string
+	}{
+		{"single", "/items?tag=a", []string{"a"}},
+		{"repeated keys", "/items?tag=a&tag=b", []string{"a", "b"}},
+		{"comma separated", "/items?tag=a,b", []string{"a", "b"}},
+		{"repeated and comma separated", "/items?tag=a,b&tag=c", []string{"a", "b", "c"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+
+			got, err := web.QueryStrings(r, "tag")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestQueryStrings_Errors(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"missing", "/items"},
+		{"empty", "/items?tag="},
+		{"empty element", "/items?tag=a,,b"},
+		{"trailing comma", "/items?tag=a,"},
+		{"empty repeated key", "/items?tag=a&tag="},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+
+			if _, err := web.QueryStrings(r, "tag"); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestQueryBools(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?flag=true,false&flag=1", nil)
+
+	got, err := web.QueryBools(r, "flag")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []bool{true, false, true}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestQueryBools_Invalid(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?flag=true,maybe", nil)
+
+	if _, err := web.QueryBools(r, "flag"); err == nil {
+		t.Fatal("expected error for invalid bool")
+	}
+}
+
+func TestQueryBools_Missing(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items", nil)
+
+	if _, err := web.QueryBools(r, "flag"); err == nil {
+		t.Fatal("expected error for missing query param")
+	}
+}
+
+func TestQueryInts(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=1,2&id=3", nil)
+
+	got, err := web.QueryInts(r, "id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []int{1, 2, 3}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestQueryInts_Invalid(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=1&id=abc", nil)
+
+	if _, err := web.QueryInts(r, "id"); err == nil {
+		t.Fatal("expected error for non-integer")
+	}
+}
+
+func TestQueryInts_Missing(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items", nil)
+
+	if _, err := web.QueryInts(r, "id"); err == nil {
+		t.Fatal("expected error for missing query param")
+	}
+}
+
+func TestQueryInt64s(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=8888888888,1&id=-2", nil)
+
+	got, err := web.QueryInt64s(r, "id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []int64{8888888888, 1, -2}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestQueryInt64s_Invalid(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items?id=1,nope", nil)
+
+	if _, err := web.QueryInt64s(r, "id"); err == nil {
+		t.Fatal("expected error for non-integer")
+	}
+}
+
+func TestQueryInt64s_Missing(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/items", nil)
+
+	if _, err := web.QueryInt64s(r, "id"); err == nil {
 		t.Fatal("expected error for missing query param")
 	}
 }
