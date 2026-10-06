@@ -366,6 +366,41 @@ func TestClient_Retry_Throttled(t *testing.T) {
 	}
 }
 
+func TestClient_Retry_CanceledDuringThrottleWait(t *testing.T) {
+	u, got := retryServer(t, statuses("", http.StatusOK))
+
+	c, err := client.Build(client.WithThrottleEvery(time.Hour, 1), client.WithRetry(1, fastBackoff))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	spend, err := c.Request(t.Context(), u, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	if err := c.Do(spend, http.StatusOK); err != nil {
+		t.Fatalf("first request spends the burst token: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	body := &trackedBody{Reader: strings.NewReader("payload")}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	if err := c.Do(req, http.StatusOK); !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+	if body.closes != 1 {
+		t.Errorf("expected 1 body close, got %d", body.closes)
+	}
+	assertAttempts(t, got, 1)
+}
+
 func TestClient_Retry_SharedHTTPClient(t *testing.T) {
 	u, got := retryServer(t, statuses("", http.StatusServiceUnavailable))
 
@@ -378,14 +413,14 @@ func TestClient_Retry_SharedHTTPClient(t *testing.T) {
 	assertAttempts(t, got, 1)
 }
 
-// trackedBody records whether it was closed; Len reports what a reader left unread.
+// trackedBody counts its Close calls; Len reports what a reader left unread.
 type trackedBody struct {
 	*strings.Reader
-	closed bool
+	closes int
 }
 
 func (b *trackedBody) Close() error {
-	b.closed = true
+	b.closes++
 	return nil
 }
 
@@ -412,7 +447,7 @@ func TestClient_Retry_DrainsDiscardedResponse(t *testing.T) {
 	if discarded.Len() != 0 {
 		t.Errorf("expected the discarded body drained, %d bytes left", discarded.Len())
 	}
-	if !discarded.closed {
+	if discarded.closes == 0 {
 		t.Error("expected the discarded body closed")
 	}
 }
