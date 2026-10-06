@@ -355,6 +355,88 @@ func TestThrottleRoundTripper_LoggerTakesOneToken(t *testing.T) {
 	}
 }
 
+func TestNewRoundTripperEvery_Validation(t *testing.T) {
+	tests := map[string]struct {
+		interval time.Duration
+		burst    int
+	}{
+		"zero interval":     {interval: 0, burst: 1},
+		"negative interval": {interval: -time.Second, burst: 1},
+		"zero burst":        {interval: time.Second, burst: 0},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewRoundTripperEvery(tc.interval, tc.burst, func() *slog.Logger { return nil }, http.DefaultTransport)
+			if !errors.Is(err, ErrMustNotBeZero) {
+				t.Errorf("expected ErrMustNotBeZero, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestThrottleRoundTripper_LogsRate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+
+	tests := map[string]struct {
+		newRT    func(logFn func() *slog.Logger) (http.RoundTripper, error)
+		wantRate string
+	}{
+		"rps": {
+			newRT: func(logFn func() *slog.Logger) (http.RoundTripper, error) {
+				return NewRoundTripper(2, 1, logFn, http.DefaultTransport)
+			},
+			wantRate: "rate=2 ",
+		},
+		"interval": {
+			newRT: func(logFn func() *slog.Logger) (http.RoundTripper, error) {
+				return NewRoundTripperEvery(400*time.Millisecond, 1, logFn, http.DefaultTransport)
+			},
+			wantRate: "rate=2.5 ",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			rt, err := tc.newRT(func() *slog.Logger { return logger })
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &http.Client{Transport: rt}
+
+			send := func(ctx context.Context) error {
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+				if err != nil {
+					return err
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					return err
+				}
+				return resp.Body.Close()
+			}
+
+			if err := send(t.Context()); err != nil {
+				t.Fatalf("first request spends the burst token: %v", err)
+			}
+
+			// The second request finds no token, so it logs "tokens exhausted" and then "wait complete".
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+			defer cancel()
+			if err := send(ctx); err == nil {
+				t.Fatal("expected the second request to fail waiting for a token, got nil")
+			}
+
+			if n := strings.Count(logs.String(), tc.wantRate); n != 2 {
+				t.Errorf("expected 2 log lines with %q, got %d:\n%s", tc.wantRate, n, logs.String())
+			}
+		})
+	}
+}
+
 func containsDirectContextError(errs []error) bool {
 	for _, err := range errs {
 		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {

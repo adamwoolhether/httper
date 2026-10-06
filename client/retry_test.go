@@ -333,17 +333,36 @@ func TestClient_Retry_Body(t *testing.T) {
 }
 
 func TestClient_Retry_Throttled(t *testing.T) {
-	u, got := retryServer(t, statuses("", http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusOK))
+	// Both throttles space tokens 200ms apart; the 1ms backoff alone would not. The bucket holds one token,
+	// so each gap also shows that the attempt before it spent a token.
+	tests := map[string]struct {
+		throttle client.Option
+		codes    []int
+	}{
+		"rps": {
+			throttle: client.WithThrottle(5, 1),
+			codes:    []int{http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusOK},
+		},
+		"interval": {
+			throttle: client.WithThrottleEvery(time.Minute/300, 1),
+			codes:    []int{http.StatusTooManyRequests, http.StatusOK},
+		},
+	}
 
-	assertStatus(t, doGet(t, u, client.WithThrottle(5, 1), client.WithRetry(2, fastBackoff)), http.StatusOK)
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			u, got := retryServer(t, statuses("", tc.codes...))
 
-	// 5 rps spaces tokens 200ms apart; the 1ms backoff alone would not.
-	const minGap = 150 * time.Millisecond
-	times := assertAttempts(t, got, 3)
-	for i := 1; i < len(times); i++ {
-		if gap := times[i].Sub(times[i-1]); gap < minGap {
-			t.Errorf("attempt %d came %v after the previous one, want at least %v", i, gap, minGap)
-		}
+			assertStatus(t, doGet(t, u, tc.throttle, client.WithRetry(len(tc.codes)-1, fastBackoff)), http.StatusOK)
+
+			const minGap = 150 * time.Millisecond
+			times := assertAttempts(t, got, len(tc.codes))
+			for i := 1; i < len(times); i++ {
+				if gap := times[i].Sub(times[i-1]); gap < minGap {
+					t.Errorf("attempt %d came %v after the previous one, want at least %v", i, gap, minGap)
+				}
+			}
+		})
 	}
 }
 
