@@ -464,6 +464,12 @@ web.QueryString(r, "q")   // string
 web.QueryBool(r, "flag")  // bool
 web.QueryInt(r, "page")   // int
 web.QueryInt64(r, "ts")   // int64
+
+// Plural forms read repeated keys and comma-separated values: ?id=1,2&id=3
+web.QueryStrings(r, "tag") // []string
+web.QueryBools(r, "flag")  // []bool
+web.QueryInts(r, "id")     // []int
+web.QueryInt64s(r, "id")   // []int64
 ```
 
 **Decode & Respond:**
