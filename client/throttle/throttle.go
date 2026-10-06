@@ -17,15 +17,25 @@ func NewRoundTripper(rps, burst int, logFn func() *slog.Logger, next http.RoundT
 		return nil, fmt.Errorf("rps[%d] and burst[%d] %w", rps, burst, ErrMustNotBeZero)
 	}
 
-	t := &throttle{
-		limiter: rate.NewLimiter(rate.Limit(rps), burst),
-		rps:     rps,
+	return newThrottle(rate.Limit(rps), burst, logFn, next), nil
+}
+
+// NewRoundTripperEvery is [NewRoundTripper] at one request per interval, for rates that whole requests per second cannot express.
+func NewRoundTripperEvery(interval time.Duration, burst int, logFn func() *slog.Logger, next http.RoundTripper) (http.RoundTripper, error) {
+	if interval <= 0 || burst <= 0 {
+		return nil, fmt.Errorf("interval[%s] and burst[%d] %w", interval, burst, ErrMustNotBeZero)
+	}
+
+	return newThrottle(rate.Every(interval), burst, logFn, next), nil
+}
+
+func newThrottle(limit rate.Limit, burst int, logFn func() *slog.Logger, next http.RoundTripper) *throttle {
+	return &throttle{
+		limiter: rate.NewLimiter(limit, burst),
 		burst:   burst,
 		next:    next,
 		logFn:   logFn,
 	}
-
-	return t, nil
 }
 
 func (t *throttle) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -42,10 +52,11 @@ func (t *throttle) RoundTrip(r *http.Request) (*http.Response, error) {
 	var waited time.Duration
 	logger := t.logFn()
 	if logger != nil && t.limiter.Tokens() < 1 {
-		logger.Info("throttle tokens exhausted", "rate", t.rps, "burst", t.burst, "path", r.URL.Path)
+		rps := float64(t.limiter.Limit())
+		logger.Info("throttle tokens exhausted", "rate", rps, "burst", t.burst, "path", r.URL.Path)
 
 		defer func() {
-			logger.Info("throttle wait complete", "waited", waited.String(), "rate", t.rps, "burst", t.burst)
+			logger.Info("throttle wait complete", "waited", waited.String(), "rate", rps, "burst", t.burst)
 		}()
 	}
 

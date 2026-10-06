@@ -14,6 +14,9 @@
 //	)
 //	httpClient := &http.Client{Transport: rt}
 //
+// For a rate that whole requests per second cannot express, use [NewRoundTripperEvery]
+// with the interval between requests, such as time.Minute/3500 for 3500 per minute.
+//
 // When the rate limit is exceeded, outbound requests block until a
 // token becomes available or the request context is cancelled.
 package throttle

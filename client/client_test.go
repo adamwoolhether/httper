@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -599,12 +600,131 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestClient_WithThrottleValidation(t *testing.T) {
-	_, err := client.Build(client.WithThrottle(0, 10))
-	if err == nil {
-		t.Fatal("expected error for zero rps")
+	tests := map[string]client.Option{
+		"zero rps":          client.WithThrottle(0, 10),
+		"zero interval":     client.WithThrottleEvery(0, 1),
+		"negative interval": client.WithThrottleEvery(-time.Second, 1),
+		"zero burst":        client.WithThrottleEvery(time.Second, 0),
 	}
-	if !errors.Is(err, throttle.ErrMustNotBeZero) {
-		t.Errorf("expected ErrMustNotBeZero, got: %v", err)
+
+	for name, opt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := client.Build(opt); !errors.Is(err, throttle.ErrMustNotBeZero) {
+				t.Errorf("expected ErrMustNotBeZero, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestClient_WithThrottleEvery(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer ts.Close()
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	// 600 per minute is one token per 100ms: the burst sends the first request at once, and the other two wait.
+	c, err := client.Build(client.WithThrottleEvery(time.Minute/600, 1))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() {
+			req, err := c.Request(t.Context(), u, http.MethodGet)
+			if err != nil {
+				t.Errorf("creating request: %v", err)
+				return
+			}
+			if err := c.Do(req, http.StatusOK); err != nil {
+				t.Errorf("expected no error, got: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Errorf("3 requests at one per 100ms finished after %v, want at least 200ms", elapsed)
+	}
+}
+
+func TestClient_WithThrottleEvery_Burst(t *testing.T) {
+	var sent atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
+	defer ts.Close()
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build(client.WithThrottleEvery(time.Hour, 2))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	// A request whose token wait would pass its deadline fails at once, so only the burst reaches the server.
+	for range 3 {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		req, err := c.Request(ctx, u, http.MethodGet)
+		if err != nil {
+			cancel()
+			t.Fatalf("creating request: %v", err)
+		}
+		_ = c.Do(req, http.StatusOK)
+		cancel()
+	}
+
+	if n := sent.Load(); n != 2 {
+		t.Errorf("expected the burst of 2 to reach the server, got %d", n)
+	}
+}
+
+func TestClient_WithThrottleEvery_CanceledDuringWait(t *testing.T) {
+	var sent atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
+	defer ts.Close()
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build(client.WithThrottleEvery(time.Hour, 1))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	first, err := c.Request(t.Context(), u, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	if err := c.Do(first, http.StatusOK); err != nil {
+		t.Fatalf("first request spends the burst token: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	req, err := c.Request(ctx, u, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	err = c.Do(req, http.StatusOK)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+	if !errors.Is(err, throttle.ErrWaitingFailed) {
+		t.Errorf("expected the cancel to end the throttle wait, got: %v", err)
+	}
+	if n := sent.Load(); n != 1 {
+		t.Errorf("expected only the first request to reach the server, got %d", n)
 	}
 }
 
