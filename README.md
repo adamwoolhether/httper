@@ -122,7 +122,7 @@ err = c.Do(req, http.StatusCreated, client.WithDestination(&resp))
 #### Raw Responses
 
 Read a body that is not JSON, or a response header such as `Location`.
-`DoRaw` returns the full body and the response headers. For any other status, it returns the same `UnexpectedStatusError` as `Do`.
+`DoRaw` returns the full body and the response headers when the status matches the expected code. For any other status, it returns the same `UnexpectedStatusError` as `Do`.
 
 ```go
 body, header, err := c.DoRaw(req, http.StatusCreated)
