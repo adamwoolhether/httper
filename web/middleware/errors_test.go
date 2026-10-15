@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/adamwoolhether/httper/web"
 	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
 )
@@ -151,6 +152,39 @@ func TestErrors_PlainError(t *testing.T) {
 	}
 }
 
+func TestErrors_DecodeLimit(t *testing.T) {
+	log, buf := newTestLogger(t)
+	handler := middleware.Errors(log)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		var input struct {
+			Name string `json:"name"`
+		}
+		return web.DecodeLimit(w, r, &input, 8)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"alice"}`))
+
+	if err := handler(r.Context(), w, r); err != nil {
+		t.Fatalf("unexpected error from middleware: %v", err)
+	}
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+		t.Fatalf("body should be JSON: %v", err)
+	}
+	if m["message"] != "request body exceeds 8 bytes" {
+		t.Fatalf("message = %v, want %q", m["message"], "request body exceeds 8 bytes")
+	}
+
+	if !strings.Contains(buf.String(), "request body too large") {
+		t.Fatalf("expected the source error in log output: %s", buf.String())
+	}
+}
+
 func TestErrors_SharedInternalError(t *testing.T) {
 	const requests = 10
 	const secret = "secret db error"
@@ -202,6 +236,7 @@ func TestErrors_UnknownHooks(t *testing.T) {
 		"internal error": {err: errs.NewInternal(errors.New("db down")), want: false},
 		"app error":      {err: errs.New(http.StatusBadRequest, errors.New("bad input")), want: false},
 		"field errors":   {err: errs.NewFieldsError("email", errors.New("required")), want: false},
+		"body too large": {err: fmt.Errorf("decode: %w", &http.MaxBytesError{Limit: 8}), want: false},
 	}
 
 	for name, tc := range tests {
