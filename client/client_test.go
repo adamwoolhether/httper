@@ -20,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/adamwoolhether/httper/client"
@@ -2272,6 +2273,194 @@ func TestClient_Do_AuthFailure(t *testing.T) {
 
 			if statusErr.Body != "error body" {
 				t.Errorf("expected body %q, got %q", "error body", statusErr.Body)
+			}
+		})
+	}
+}
+
+func TestClient_DoRaw(t *testing.T) {
+	// Every byte value, and more bytes than the error body cap.
+	want := make([]byte, 64<<10)
+	for i := range want {
+		want[i] = byte(i)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/images/42")
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write(want)
+	}))
+	defer ts.Close()
+
+	testURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parsing test server URL: %v", err)
+	}
+
+	c, err := client.Build()
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	req, err := c.Request(t.Context(), testURL, http.MethodPost)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	body, header, err := c.DoRaw(req, http.StatusCreated)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if !bytes.Equal(body, want) {
+		t.Errorf("body differs from the %d bytes sent: got %d bytes", len(want), len(body))
+	}
+	if got := header.Get("Location"); got != "/images/42" {
+		t.Errorf("Location = %q, want %q", got, "/images/42")
+	}
+	if got := header.Get("Content-Type"); got != "image/png" {
+		t.Errorf("Content-Type = %q, want %q", got, "image/png")
+	}
+}
+
+func TestClient_DoRaw_UnexpectedStatus(t *testing.T) {
+	tests := map[string]struct {
+		status     int
+		retryAfter string
+		wantRetry  time.Duration
+		wantAuth   bool
+	}{
+		"429 with Retry-After": {status: http.StatusTooManyRequests, retryAfter: "120", wantRetry: 2 * time.Minute},
+		"401 Unauthorized":     {status: http.StatusUnauthorized, wantAuth: true},
+		"403 Forbidden":        {status: http.StatusForbidden, wantAuth: true},
+		"500 Internal Error":   {status: http.StatusInternalServerError},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.retryAfter != "" {
+					w.Header().Set("Retry-After", tc.retryAfter)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("error body"))
+			}))
+			defer ts.Close()
+
+			testURL, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("parsing test server URL: %v", err)
+			}
+
+			c, err := client.Build()
+			if err != nil {
+				t.Fatalf("creating client: %v", err)
+			}
+
+			req, err := c.Request(t.Context(), testURL, http.MethodGet)
+			if err != nil {
+				t.Fatalf("creating request: %v", err)
+			}
+
+			body, header, err := c.DoRaw(req, http.StatusOK)
+			if body != nil || header != nil {
+				t.Errorf("expected no body and no header, got body %q, header %v", body, header)
+			}
+
+			var statusErr *client.UnexpectedStatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected *UnexpectedStatusError, got: %T: %v", err, err)
+			}
+			if statusErr.StatusCode != tc.status {
+				t.Errorf("expected status %d, got %d", tc.status, statusErr.StatusCode)
+			}
+			if statusErr.Body != "error body" {
+				t.Errorf("expected body %q, got %q", "error body", statusErr.Body)
+			}
+			if statusErr.RetryAfter != tc.wantRetry {
+				t.Errorf("RetryAfter = %v, want %v", statusErr.RetryAfter, tc.wantRetry)
+			}
+			if !errors.Is(err, client.ErrUnexpectedStatusCode) {
+				t.Errorf("expected ErrUnexpectedStatusCode, got: %v", err)
+			}
+			if got := errors.Is(err, client.ErrAuthFailure); got != tc.wantAuth {
+				t.Errorf("errors.Is(err, ErrAuthFailure) = %v, want %v", got, tc.wantAuth)
+			}
+		})
+	}
+}
+
+func TestClient_DoRaw_Retry(t *testing.T) {
+	u, got := retryServer(t, func(w http.ResponseWriter, attempt int) {
+		if attempt == 0 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("first attempt"))
+			return
+		}
+		_, _ = w.Write([]byte("second attempt"))
+	})
+
+	c, err := client.Build(client.WithRetry(1, fastBackoff))
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	req, err := c.Request(t.Context(), u, http.MethodGet)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+
+	body, _, err := c.DoRaw(req, http.StatusOK)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if string(body) != "second attempt" {
+		t.Errorf("body = %q, want %q", body, "second attempt")
+	}
+	assertAttempts(t, got, 2)
+}
+
+func TestClient_DoRaw_ClosesBody(t *testing.T) {
+	errRead := errors.New("connection reset")
+
+	tests := map[string]struct {
+		status  int
+		body    io.Reader
+		wantErr error
+	}{
+		"success":           {status: http.StatusOK, body: strings.NewReader("ok")},
+		"unexpected status": {status: http.StatusInternalServerError, body: strings.NewReader("error body"), wantErr: client.ErrUnexpectedStatusCode},
+		"read error":        {status: http.StatusOK, body: io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errRead)), wantErr: errRead},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			closer := &countingBody{}
+			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				body := struct {
+					io.Reader
+					io.Closer
+				}{tc.body, closer}
+				return &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: body, Request: r}, nil
+			})
+
+			c, err := client.Build(client.WithTransport(rt))
+			if err != nil {
+				t.Fatalf("creating client: %v", err)
+			}
+
+			req, err := c.Request(t.Context(), &url.URL{Scheme: "http", Host: "example.invalid"}, http.MethodGet)
+			if err != nil {
+				t.Fatalf("creating request: %v", err)
+			}
+
+			if _, _, err := c.DoRaw(req, http.StatusOK); !errors.Is(err, tc.wantErr) {
+				t.Errorf("DoRaw error = %v, want %v", err, tc.wantErr)
+			}
+			if !closer.closed {
+				t.Error("expected the body closed")
 			}
 		})
 	}
