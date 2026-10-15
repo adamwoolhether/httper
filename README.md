@@ -420,8 +420,10 @@ A lower priority wraps a higher one, so `Logger` is the outermost route middlewa
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
 middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins, no wildcards; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
-middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors; optional hooks run for unknown errors
+middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors, answers 413 for *http.MaxBytesError; optional hooks run for unknown errors
 middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
+middleware.BodyLimit(n)                // limits the request body to n bytes; a read past n gets 413 from Errors
+middleware.Deadline(d)                 // sets the connection read and write deadlines to now plus d
 ```
 
 `Errors` and `Panics` accept optional hooks of type `func(ctx context.Context, err error)`. A hook is a closure, so it can capture any client it needs, such as an error tracker:
@@ -478,8 +480,14 @@ web.Decode(r, &input)                        // JSON decode; validates a struct 
 web.DecodeLimit(w, r, &input, maxBytes)      // Decode with the body limited to maxBytes
 web.RespondJSON(ctx, w, statusCode, data)    // JSON response
 web.RespondError(ctx, w, errsErr)            // structured error response
+web.RespondFile(ctx, w, contentType, filename, data)      // 200 attachment with Content-Length
+web.RespondStream(ctx, log, w, contentType, filename, rd) // 200 attachment copied from an io.Reader
 web.Redirect(w, r, url, code)               // HTTP redirect (3xx)
 ```
+
+`RespondStream` reads the first bytes before it writes the header, so a read error before the first byte returns the error and `Errors` can still answer it.
+After the header is out, it logs a read or write error and panics with `http.ErrAbortHandler`, so the server aborts the connection and the client does not take a cut-short body for a complete file.
+`Panics` re-panics `http.ErrAbortHandler`.
 
 ### Structured Errors
 

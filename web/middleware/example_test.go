@@ -114,6 +114,27 @@ func ExampleErrors() {
 	// {"code":404,"message":"item not found"}
 }
 
+func ExampleBodyLimit() {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	handler := middleware.Errors(log)(middleware.BodyLimit(4)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			return fmt.Errorf("read body: %w", err)
+		}
+		return nil
+	}))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("too long"))
+	handler(r.Context(), w, r)
+
+	fmt.Println(w.Code)
+	fmt.Println(w.Body.String())
+	// Output:
+	// 413
+	// {"code":413,"message":"request body exceeds 4 bytes"}
+}
+
 func ExamplePanics() {
 	panics := middleware.Panics()
 
