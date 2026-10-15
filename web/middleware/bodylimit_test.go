@@ -2,7 +2,6 @@ package middleware_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,10 +21,15 @@ func TestBodyLimit(t *testing.T) {
 		body       string
 		wantStatus int
 		wantRead   string
+		wantBody   string
 	}{
-		"under limit": {body: "1234567", wantStatus: http.StatusOK, wantRead: "1234567"},
-		"at limit":    {body: "12345678", wantStatus: http.StatusOK, wantRead: "12345678"},
-		"over limit":  {body: "123456789", wantStatus: http.StatusRequestEntityTooLarge},
+		"under limit": {body: "1234567", wantStatus: http.StatusNoContent, wantRead: "1234567"},
+		"at limit":    {body: "12345678", wantStatus: http.StatusNoContent, wantRead: "12345678"},
+		"over limit": {
+			body:       "123456789",
+			wantStatus: http.StatusRequestEntityTooLarge,
+			wantBody:   `{"code":413,"message":"request body exceeds 8 bytes"}`,
+		},
 	}
 
 	for name, tc := range tests {
@@ -41,7 +45,7 @@ func TestBodyLimit(t *testing.T) {
 				}
 				read = string(data)
 
-				return web.RespondJSON(ctx, w, http.StatusOK, nil)
+				return web.RespondJSON(ctx, w, http.StatusNoContent, nil)
 			})
 
 			w := httptest.NewRecorder()
@@ -53,18 +57,8 @@ func TestBodyLimit(t *testing.T) {
 			if read != tc.wantRead {
 				t.Fatalf("handler read %q, want %q", read, tc.wantRead)
 			}
-
-			if tc.wantStatus == http.StatusRequestEntityTooLarge {
-				var m map[string]any
-				if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
-					t.Fatalf("body should be JSON: %v: %s", err, w.Body.String())
-				}
-				if int(m["code"].(float64)) != http.StatusRequestEntityTooLarge {
-					t.Fatalf("code = %v, want %d", m["code"], http.StatusRequestEntityTooLarge)
-				}
-				if m["message"] != "request body exceeds 8 bytes" {
-					t.Fatalf("message = %v, want %q", m["message"], "request body exceeds 8 bytes")
-				}
+			if got := w.Body.String(); got != tc.wantBody {
+				t.Fatalf("body = %s, want %s", got, tc.wantBody)
 			}
 		})
 	}

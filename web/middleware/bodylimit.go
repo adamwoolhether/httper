@@ -8,7 +8,8 @@ import (
 )
 
 // BodyLimit limits each request body to n bytes. A read past n returns an
-// error that wraps *http.MaxBytesError, and Errors answers it with 413.
+// error that wraps *http.MaxBytesError. Errors answers it with 413 when the
+// handler returns that error as is or wraps it with %w.
 func BodyLimit(n int64) mux.Middleware {
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {

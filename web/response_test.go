@@ -201,9 +201,9 @@ func TestRespondFile_EmptyFilename(t *testing.T) {
 }
 
 func TestRespondFile_WriteError(t *testing.T) {
-	w := &failingWriter{ResponseRecorder: httptest.NewRecorder()}
+	w := httptest.NewRecorder()
 
-	if err := web.RespondFile(context.Background(), w, "text/plain", "a.txt", []byte("data")); err != nil {
+	if err := web.RespondFile(context.Background(), failingWriter{w}, "text/plain", "a.txt", []byte("data")); err != nil {
 		t.Fatalf("error = %v, want nil after the header is out", err)
 	}
 	if w.Code != http.StatusOK {
@@ -271,11 +271,12 @@ func TestRespondStream(t *testing.T) {
 	}
 }
 
-func TestRespondStream_ReadErrorBeforeFirstByte(t *testing.T) {
+func TestRespondStream_ReadErrorBeforeHeader(t *testing.T) {
 	errRead := errors.New("storage unavailable")
 	tests := map[string]io.Reader{
-		"first read":     iotest.ErrReader(errRead),
-		"after no bytes": &emptyReads{n: 3, err: errRead},
+		"first read":       iotest.ErrReader(errRead),
+		"after no bytes":   &emptyReads{n: 3, err: errRead},
+		"with first bytes": &dataErrReader{data: []byte("partial"), err: errRead},
 	}
 
 	for name, body := range tests {
@@ -326,22 +327,20 @@ func TestRespondStream_EmptyBody(t *testing.T) {
 }
 
 func TestRespondStream_ErrorAfterHeader(t *testing.T) {
-	errRead := errors.New("storage unavailable")
 	tests := map[string]struct {
-		w    func() http.ResponseWriter
-		body func() io.Reader
+		w       func(http.ResponseWriter) http.ResponseWriter
+		body    io.Reader
+		wantLog string
 	}{
-		"read error after first chunk": {
-			w:    func() http.ResponseWriter { return httptest.NewRecorder() },
-			body: func() io.Reader { return io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errRead)) },
-		},
-		"read error with first chunk": {
-			w:    func() http.ResponseWriter { return httptest.NewRecorder() },
-			body: func() io.Reader { return &dataErrReader{data: []byte("partial"), err: errRead} },
+		"read error": {
+			w:       func(w http.ResponseWriter) http.ResponseWriter { return w },
+			body:    io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errors.New("storage unavailable"))),
+			wantLog: "storage unavailable",
 		},
 		"write error": {
-			w:    func() http.ResponseWriter { return &failingWriter{ResponseRecorder: httptest.NewRecorder()} },
-			body: func() io.Reader { return strings.NewReader("data") },
+			w:       func(w http.ResponseWriter) http.ResponseWriter { return failingWriter{w} },
+			body:    strings.NewReader("data"),
+			wantLog: "connection reset",
 		},
 	}
 
@@ -349,10 +348,17 @@ func TestRespondStream_ErrorAfterHeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			log, buf := newTestLogger(t)
 
+			var traceID string
+			app := mux.New()
+			app.Get("/download", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				traceID = mux.GetTraceID(ctx)
+				return web.RespondStream(ctx, log, tc.w(w), "text/csv", "report.csv", tc.body)
+			})
+
 			var rec any
 			func() {
 				defer func() { rec = recover() }()
-				_ = web.RespondStream(context.Background(), log, tc.w(), "text/csv", "report.csv", tc.body())
+				app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/download", nil))
 			}()
 
 			if rec != http.ErrAbortHandler {
@@ -361,57 +367,69 @@ func TestRespondStream_ErrorAfterHeader(t *testing.T) {
 			if got := strings.Count(buf.String(), "level=ERROR"); got != 1 {
 				t.Fatalf("log has %d error entries, want 1:\n%s", got, buf.String())
 			}
-			if !strings.Contains(buf.String(), "trace_id=") {
-				t.Fatalf("expected trace_id in log output: %s", buf.String())
+			for _, want := range []string{"trace_id=" + traceID, tc.wantLog} {
+				if !strings.Contains(buf.String(), want) {
+					t.Fatalf("log should contain %q:\n%s", want, buf.String())
+				}
 			}
 		})
 	}
 }
 
-func TestRespondStream_Server(t *testing.T) {
-	data := make([]byte, 100<<10+7)
+func TestRespondStream_NilLog(t *testing.T) {
+	body := io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errors.New("storage unavailable")))
+
+	var rec any
+	func() {
+		defer func() { rec = recover() }()
+		_ = web.RespondStream(context.Background(), nil, httptest.NewRecorder(), "text/csv", "report.csv", body)
+	}()
+
+	if rec != http.ErrAbortHandler {
+		t.Fatalf("panic value = %v, want http.ErrAbortHandler", rec)
+	}
+}
+
+func TestRespondStream_LargeBody(t *testing.T) {
+	data := testData(100<<10 + 7)
+	log, _ := newTestLogger(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", iotest.HalfReader(bytes.NewReader(data)))
+	}))
+	defer srv.Close()
+
+	got, err := get(srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("body has %d bytes, want the %d sent bytes", len(got), len(data))
+	}
+}
+
+func TestRespondStream_AbortReachesClient(t *testing.T) {
+	data := testData(100<<10 + 7)
+	log, _ := newTestLogger(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := io.MultiReader(bytes.NewReader(data), iotest.ErrReader(errors.New("storage unavailable")))
+		_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", body)
+	}))
+	defer srv.Close()
+
+	if got, err := get(srv.URL); err == nil {
+		t.Fatalf("client read %d bytes without error, want a failed read", len(got))
+	}
+}
+
+func testData(n int) []byte {
+	data := make([]byte, n)
 	for i := range data {
 		data[i] = byte(i)
 	}
 
-	tests := map[string]struct {
-		body    func() io.Reader
-		wantErr bool
-	}{
-		"larger than buffer": {
-			body: func() io.Reader { return iotest.HalfReader(bytes.NewReader(data)) },
-		},
-		"read error after header": {
-			body: func() io.Reader {
-				return io.MultiReader(bytes.NewReader(data), iotest.ErrReader(errors.New("storage unavailable")))
-			},
-			wantErr: true,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			log, _ := newTestLogger(t)
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", tc.body())
-			}))
-			defer srv.Close()
-
-			got, err := get(srv.URL)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("client read %d bytes without error, want a failed read", len(got))
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !bytes.Equal(got, data) {
-				t.Fatalf("body has %d bytes, want the %d sent bytes", len(got), len(data))
-			}
-		})
-	}
+	return data
 }
 
 func get(url string) ([]byte, error) {
@@ -424,12 +442,12 @@ func get(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// failingWriter records the header but fails every body write.
+// failingWriter passes the header through but fails every body write.
 type failingWriter struct {
-	*httptest.ResponseRecorder
+	http.ResponseWriter
 }
 
-func (w *failingWriter) Write([]byte) (int, error) {
+func (w failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("connection reset")
 }
 

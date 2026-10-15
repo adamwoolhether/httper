@@ -77,15 +77,20 @@ func RespondFile(ctx context.Context, w http.ResponseWriter, contentType, filena
 }
 
 // RespondStream copies body as a 200 attachment named filename, with the
-// same headers as RespondFile except Content-Length.
+// same headers as RespondFile except Content-Length. A nil log uses
+// slog.Default().
 //
-// It reads the first bytes before it writes the header, so a read error
-// before the first byte returns that error and writes nothing. An empty body
-// writes the header and returns nil. After the header is out, a read or write
-// error is logged to log and RespondStream panics with http.ErrAbortHandler,
-// so the server aborts the connection and the client does not take a cut-short
-// body for a complete file.
+// It reads the first bytes before it writes the header, so a read error in
+// that read returns the error and writes nothing. An empty body writes the
+// header and returns nil. After the header is out, a read or write error is
+// logged to log and RespondStream panics with http.ErrAbortHandler, so the
+// server aborts the connection and the client does not take a cut-short body
+// for a complete file.
 func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter, contentType, filename string, body io.Reader) error {
+	if log == nil {
+		log = slog.Default()
+	}
+
 	buf := make([]byte, 32<<10)
 
 	var n int
@@ -93,7 +98,7 @@ func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter,
 	for n == 0 && readErr == nil {
 		n, readErr = body.Read(buf)
 	}
-	if n == 0 && !errors.Is(readErr, io.EOF) {
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
 		return readErr
 	}
 
@@ -102,30 +107,16 @@ func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter,
 	mux.SetStatusCode(ctx, http.StatusOK)
 	w.WriteHeader(http.StatusOK)
 
-	if err := streamRest(w, body, buf, n, readErr); err != nil {
-		log.Error("respond stream", "trace_id", mux.GetTraceID(ctx), "err", err)
+	_, err := w.Write(buf[:n])
+	if err == nil && readErr == nil {
+		_, err = io.CopyBuffer(w, body, buf)
+	}
+	if err != nil {
+		log.Error("respond stream", "trace_id", mux.GetTraceID(ctx), "error", err)
 		panic(http.ErrAbortHandler)
 	}
 
 	return nil
-}
-
-// streamRest writes the first n bytes in buf, then copies the rest of body.
-func streamRest(w io.Writer, body io.Reader, buf []byte, n int, readErr error) error {
-	if _, err := w.Write(buf[:n]); err != nil {
-		return err
-	}
-
-	switch {
-	case errors.Is(readErr, io.EOF):
-		return nil
-	case readErr != nil:
-		return readErr
-	}
-
-	_, err := io.CopyBuffer(w, body, buf)
-
-	return err
 }
 
 // setAttachmentHeader sets Content-Type and an attachment Content-Disposition.

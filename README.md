@@ -422,8 +422,8 @@ middleware.CSRF(origins...)            // exact scheme://host[:port] trusted ori
 middleware.Logger(log)                 // *slog.Logger
 middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors, answers 413 for *http.MaxBytesError; optional hooks run for unknown errors
 middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
-middleware.BodyLimit(n)                // limits the request body to n bytes; a read past n gets 413 from Errors
-middleware.Deadline(d)                 // sets the connection read and write deadlines to now plus d
+middleware.BodyLimit(n)                // limits the request body to n bytes; Errors answers a returned read past n with 413
+middleware.Deadline(d)                 // sets the write deadline, and the read deadline of a request with a body, to now plus d
 ```
 
 `Errors` and `Panics` accept optional hooks of type `func(ctx context.Context, err error)`. A hook is a closure, so it can capture any client it needs, such as an error tracker:
@@ -435,7 +435,7 @@ report := func(ctx context.Context, err error) {
 
 app := mux.New(mux.WithMiddleware(
 	middleware.Logger(log),
-	middleware.Errors(log, report), // errors that are not *errs.Error or FieldErrors
+	middleware.Errors(log, report), // errors that are not *errs.Error, FieldErrors, or *http.MaxBytesError
 	middleware.Panics(report),      // every panic except http.ErrAbortHandler
 ))
 ```
@@ -485,7 +485,7 @@ web.RespondStream(ctx, log, w, contentType, filename, rd) // 200 attachment copi
 web.Redirect(w, r, url, code)               // HTTP redirect (3xx)
 ```
 
-`RespondStream` reads the first bytes before it writes the header, so a read error before the first byte returns the error and `Errors` can still answer it.
+`RespondStream` reads the first bytes before it writes the header, so a read error in that read returns the error and `Errors` can still answer it.
 After the header is out, it logs a read or write error and panics with `http.ErrAbortHandler`, so the server aborts the connection and the client does not take a cut-short body for a complete file.
 `Panics` re-panics `http.ErrAbortHandler`.
 

@@ -9,18 +9,23 @@ import (
 	"github.com/adamwoolhether/httper/web/mux"
 )
 
-// Deadline sets the read and write deadlines of each request to now plus d,
-// so it bounds a route that outlasts the server timeouts. It returns an error,
-// and does not call the handler, when the ResponseWriter does not support
-// deadlines.
+// Deadline sets the write deadline of each request, and the read deadline of
+// a request with a body, to now plus d. The deadlines replace the server's
+// WriteTimeout and ReadTimeout for that request, so a route can run longer or
+// shorter than them. It returns an error, and does not call the handler, when
+// the ResponseWriter does not support deadlines.
 func Deadline(d time.Duration) mux.Middleware {
 	m := func(handler mux.Handler) mux.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			deadline := time.Now().Add(d)
 			rc := http.NewResponseController(w)
 
-			if err := rc.SetReadDeadline(deadline); err != nil {
-				return fmt.Errorf("set read deadline: %w", err)
+			// Without a body, net/http reads the connection in the background to detect a
+			// closed client, and a read deadline there cancels the connection's context.
+			if r.ContentLength != 0 {
+				if err := rc.SetReadDeadline(deadline); err != nil {
+					return fmt.Errorf("set read deadline: %w", err)
+				}
 			}
 			if err := rc.SetWriteDeadline(deadline); err != nil {
 				return fmt.Errorf("set write deadline: %w", err)

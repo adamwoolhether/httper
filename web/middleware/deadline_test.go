@@ -3,13 +3,17 @@ package middleware_test
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/adamwoolhether/httper/web/middleware"
+	"github.com/adamwoolhether/httper/web/mux"
 )
 
 func TestDeadline(t *testing.T) {
@@ -33,11 +37,7 @@ func TestDeadline(t *testing.T) {
 				return err
 			})
 
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if err := handler(r.Context(), w, r); err != nil {
-					t.Logf("handler: %v", err)
-				}
-			}))
+			srv := httptest.NewServer(serve(t, handler))
 			defer srv.Close()
 
 			if resp, err := srv.Client().Get(srv.URL); err == nil {
@@ -51,6 +51,82 @@ func TestDeadline(t *testing.T) {
 	}
 }
 
+func TestDeadline_ReadBody(t *testing.T) {
+	readErr := make(chan error, 1)
+	handler := middleware.Deadline(50 * time.Millisecond)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		_, err := io.ReadAll(r.Body)
+		readErr <- err
+		return err
+	})
+
+	srv := httptest.NewServer(serve(t, handler))
+	defer srv.Close()
+
+	// The client declares a body and never sends it.
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := io.WriteString(conn, "POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n"); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	select {
+	case err := <-readErr:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("read error = %v, want %v", err, os.ErrDeadlineExceeded)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("body read did not end at the deadline")
+	}
+}
+
+func TestDeadline_NoBodyKeepsConnection(t *testing.T) {
+	slowDone := make(chan struct{})
+	slow := middleware.Deadline(50 * time.Millisecond)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		defer close(slowDone)
+
+		w.Header().Set("Content-Length", "2")
+		w.Write([]byte("ok"))
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return err
+		}
+
+		time.Sleep(150 * time.Millisecond)
+		return nil
+	})
+
+	nextErr := make(chan error, 1)
+	routes := http.NewServeMux()
+	routes.Handle("GET /slow", serve(t, slow))
+	routes.HandleFunc("GET /next", func(w http.ResponseWriter, r *http.Request) {
+		nextErr <- r.Context().Err()
+	})
+
+	srv := httptest.NewServer(routes)
+	defer srv.Close()
+
+	if _, err := fetch(srv.Client(), srv.URL+"/slow", nil); err != nil {
+		t.Fatalf("get /slow: %v", err)
+	}
+	<-slowDone
+
+	var reused bool
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused }}
+	if _, err := fetch(srv.Client(), srv.URL+"/next", trace); err != nil {
+		t.Fatalf("get /next: %v", err)
+	}
+
+	if !reused {
+		t.Fatal("second request did not reuse the connection")
+	}
+	if err := <-nextErr; err != nil {
+		t.Fatalf("next request context error = %v, want nil", err)
+	}
+}
+
 func TestDeadline_NotSupported(t *testing.T) {
 	called := false
 	handler := middleware.Deadline(time.Second)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
@@ -59,7 +135,8 @@ func TestDeadline_NotSupported(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	r.ContentLength = 4
 
 	err := handler(r.Context(), w, r)
 	if !errors.Is(err, http.ErrNotSupported) {
@@ -68,4 +145,33 @@ func TestDeadline_NotSupported(t *testing.T) {
 	if called {
 		t.Fatal("handler ran without a deadline")
 	}
+}
+
+// serve adapts handler to an http.Handler and logs the error it returns.
+func serve(t *testing.T, handler mux.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := handler(r.Context(), w, r); err != nil {
+			t.Logf("handler: %v", err)
+		}
+	})
+}
+
+func fetch(client *http.Client, url string, trace *httptrace.ClientTrace) ([]byte, error) {
+	ctx := context.Background()
+	if trace != nil {
+		ctx = httptrace.WithClientTrace(ctx, trace)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return io.ReadAll(resp.Body)
 }

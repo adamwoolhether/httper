@@ -180,7 +180,7 @@ func TestErrors_DecodeLimit(t *testing.T) {
 		t.Fatalf("message = %v, want %q", m["message"], "request body exceeds 8 bytes")
 	}
 
-	if !strings.Contains(buf.String(), "request body too large") {
+	if !strings.Contains(buf.String(), "decode:") {
 		t.Fatalf("expected the source error in log output: %s", buf.String())
 	}
 }
