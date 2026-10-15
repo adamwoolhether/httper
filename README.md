@@ -21,7 +21,7 @@ This is meant to be lightweight, a mere wrapper around the standard library.
 - [Install](#install)
 - [Client](#client)
   - [Quick Start](#quick-start)
-  - [Features](#features): [JSON](#json-requests) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting) | [Retries](#retries)
+  - [Features](#features): [JSON](#json-requests) | [Raw](#raw-responses) | [Downloads](#file-downloads) | [Async](#async--batch-downloads) | [Rate Limiting](#rate-limiting) | [Retries](#retries)
   - [Client Options Reference](#client-options-reference)
 - [Web](#web)
   - [Quick Start](#quick-start-1)
@@ -117,6 +117,20 @@ if err != nil {
 
 var resp Response
 err = c.Do(req, http.StatusCreated, client.WithDestination(&resp))
+```
+
+#### Raw Responses
+
+Read a body that is not JSON, or a response header such as `Location`.
+`DoRaw` returns the full body and the response headers. For any other status, it returns the same `UnexpectedStatusError` as `Do`.
+
+```go
+body, header, err := c.DoRaw(req, http.StatusCreated)
+if err != nil {
+	return err
+}
+
+location := header.Get("Location")
 ```
 
 #### File Downloads
