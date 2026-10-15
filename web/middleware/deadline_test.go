@@ -128,23 +128,55 @@ func TestDeadline_NoBodyKeepsConnection(t *testing.T) {
 }
 
 func TestDeadline_NotSupported(t *testing.T) {
-	called := false
-	handler := middleware.Deadline(time.Second)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		called = true
-		return nil
-	})
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.ContentLength = 4
-
-	err := handler(r.Context(), w, r)
-	if !errors.Is(err, http.ErrNotSupported) {
-		t.Fatalf("error = %v, want %v", err, http.ErrNotSupported)
+	tests := map[string]struct {
+		w             func() http.ResponseWriter
+		contentLength int64
+		wantErr       error
+		wantCalled    bool
+	}{
+		"no deadlines": {
+			w:       func() http.ResponseWriter { return httptest.NewRecorder() },
+			wantErr: http.ErrNotSupported,
+		},
+		"no read deadline, with body": {
+			w:             func() http.ResponseWriter { return writeDeadlineOnly{httptest.NewRecorder()} },
+			contentLength: 4,
+			wantErr:       http.ErrNotSupported,
+		},
+		"no read deadline, without body": {
+			w:          func() http.ResponseWriter { return writeDeadlineOnly{httptest.NewRecorder()} },
+			wantCalled: true,
+		},
 	}
-	if called {
-		t.Fatal("handler ran without a deadline")
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			called := false
+			handler := middleware.Deadline(time.Second)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				called = true
+				return nil
+			})
+
+			r := httptest.NewRequest(http.MethodPost, "/", nil)
+			r.ContentLength = tc.contentLength
+
+			if err := handler(r.Context(), tc.w(), r); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if called != tc.wantCalled {
+				t.Fatalf("handler called = %t, want %t", called, tc.wantCalled)
+			}
+		})
 	}
+}
+
+// writeDeadlineOnly supports a write deadline but not a read deadline.
+type writeDeadlineOnly struct {
+	*httptest.ResponseRecorder
+}
+
+func (writeDeadlineOnly) SetWriteDeadline(time.Time) error {
+	return nil
 }
 
 // serve adapts handler to an http.Handler and logs the error it returns.

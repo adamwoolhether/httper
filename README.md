@@ -426,6 +426,8 @@ middleware.BodyLimit(n)                // limits the request body to n bytes; Er
 middleware.Deadline(d)                 // sets the write deadline, and the read deadline of a request with a body, to now plus d
 ```
 
+Put `Deadline` before any custom middleware that reads the request body: once the body is consumed, a read deadline cancels the connection's context.
+
 `Errors` and `Panics` accept optional hooks of type `func(ctx context.Context, err error)`. A hook is a closure, so it can capture any client it needs, such as an error tracker:
 
 ```go
