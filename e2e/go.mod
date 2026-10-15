@@ -1,6 +1,6 @@
 module github.com/adamwoolhether/httper/e2e
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/adamwoolhether/httper/client v0.0.0
