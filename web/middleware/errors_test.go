@@ -185,6 +185,37 @@ func TestErrors_DecodeLimit(t *testing.T) {
 	}
 }
 
+func TestErrors_BodyTooLargeWins(t *testing.T) {
+	tooLarge := &http.MaxBytesError{Limit: 8}
+	tests := map[string]error{
+		"with app error":      errors.Join(errs.New(http.StatusBadRequest, errors.New("invalid upload")), tooLarge),
+		"with internal error": errors.Join(errs.NewInternal(errors.New("upload")), tooLarge),
+		"with field errors":   errors.Join(errs.NewFieldsError("file", errors.New("required")), tooLarge),
+	}
+
+	for name, handlerErr := range tests {
+		t.Run(name, func(t *testing.T) {
+			log, _ := newTestLogger(t)
+			handler := middleware.Errors(log)(func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+				return handlerErr
+			})
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", nil)
+			if err := handler(r.Context(), w, r); err != nil {
+				t.Fatalf("unexpected error from middleware: %v", err)
+			}
+
+			if w.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
+			}
+			if got, want := w.Body.String(), `{"code":413,"message":"request body exceeds 8 bytes"}`; got != want {
+				t.Fatalf("body = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 func TestErrors_SharedInternalError(t *testing.T) {
 	const requests = 10
 	const secret = "secret db error"
