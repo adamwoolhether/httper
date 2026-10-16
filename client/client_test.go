@@ -2314,7 +2314,11 @@ func TestClient_DoRaw(t *testing.T) {
 	}
 
 	if !bytes.Equal(body, want) {
-		t.Errorf("body differs from the %d bytes sent: got %d bytes", len(want), len(body))
+		i := 0
+		for i < min(len(body), len(want)) && body[i] == want[i] {
+			i++
+		}
+		t.Errorf("body differs from the %d bytes sent at byte %d: got %d bytes", len(want), i, len(body))
 	}
 	if got := header.Get("Location"); got != "/images/42" {
 		t.Errorf("Location = %q, want %q", got, "/images/42")
