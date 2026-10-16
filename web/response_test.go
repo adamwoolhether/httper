@@ -447,6 +447,39 @@ func TestRespondStream_AbortReachesClient(t *testing.T) {
 	}
 }
 
+func TestRespondStream_CallerContentLength(t *testing.T) {
+	data := testData(100<<10 + 7)
+
+	tests := map[string]struct {
+		contentLength int
+		wantErr       bool
+	}{
+		"matches body":       {contentLength: len(data)},
+		"less than the body": {contentLength: len(data) - 1, wantErr: true},
+		"more than the body": {contentLength: len(data) + 1, wantErr: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			log, _ := newTestLogger(t)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", strconv.Itoa(tc.contentLength))
+				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", bytes.NewReader(data))
+			}))
+			defer srv.Close()
+
+			got, err := get(srv.URL)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("client error = %v, want error %t", err, tc.wantErr)
+			}
+			if err == nil && !bytes.Equal(got, data) {
+				t.Fatalf("body has %d bytes, want the %d sent bytes", len(got), len(data))
+			}
+		})
+	}
+}
+
 func testData(n int) []byte {
 	data := make([]byte, n)
 	for i := range data {

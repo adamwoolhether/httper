@@ -77,8 +77,9 @@ func RespondFile(ctx context.Context, w http.ResponseWriter, contentType, filena
 }
 
 // RespondStream copies body as a 200 attachment named filename, with the
-// same headers as RespondFile except Content-Length. A nil log uses
-// slog.Default().
+// same headers as RespondFile except Content-Length. A Content-Length that the
+// caller set stays, and the client gets a failed read when the body has
+// another length. A nil log uses slog.Default().
 //
 // It reads the first bytes before it writes the header, so a read error in
 // that read returns the error and writes nothing. An empty body writes the
