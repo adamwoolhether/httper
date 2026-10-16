@@ -112,7 +112,7 @@ func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter,
 		_, err = io.CopyBuffer(w, body, buf)
 	}
 	if err != nil {
-		log.Error("respond stream", "trace_id", mux.GetTraceID(ctx), "error", err)
+		log.ErrorContext(ctx, "respond stream", "trace_id", mux.GetTraceID(ctx), "error", err)
 		panic(http.ErrAbortHandler)
 	}
 

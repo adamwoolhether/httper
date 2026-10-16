@@ -376,6 +376,30 @@ func TestRespondStream_ErrorAfterHeader(t *testing.T) {
 	}
 }
 
+func TestRespondStream_LogContext(t *testing.T) {
+	handler := &ctxHandler{}
+
+	var traceID string
+	app := mux.New()
+	app.Get("/download", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		traceID = mux.GetTraceID(ctx)
+		body := io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errors.New("storage unavailable")))
+		return web.RespondStream(ctx, slog.New(handler), w, "text/csv", "report.csv", body)
+	})
+
+	func() {
+		defer func() { _ = recover() }()
+		app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/download", nil))
+	}()
+
+	if handler.ctx == nil {
+		t.Fatal("log handler received no record")
+	}
+	if got := mux.GetTraceID(handler.ctx); got != traceID {
+		t.Fatalf("log handler context trace ID = %q, want the request trace ID %q", got, traceID)
+	}
+}
+
 func TestRespondStream_NilLog(t *testing.T) {
 	body := io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(errors.New("storage unavailable")))
 
@@ -465,6 +489,22 @@ func (r *emptyReads) Read([]byte) (int, error) {
 
 	return 0, nil
 }
+
+// ctxHandler is a slog.Handler that keeps the context of the last record.
+type ctxHandler struct {
+	ctx context.Context
+}
+
+func (h *ctxHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *ctxHandler) Handle(ctx context.Context, _ slog.Record) error {
+	h.ctx = ctx
+	return nil
+}
+
+func (h *ctxHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *ctxHandler) WithGroup(string) slog.Handler { return h }
 
 // dataErrReader returns data and err from the same Read call.
 type dataErrReader struct {
