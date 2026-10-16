@@ -86,6 +86,28 @@ func ExampleClient_Do() {
 	// Output: ok
 }
 
+func ExampleClient_DoRaw() {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/images/42")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte{0x89, 'P', 'N', 'G'})
+	}))
+	defer ts.Close()
+
+	c, _ := client.Build()
+	u, _ := url.Parse(ts.URL)
+	req, _ := client.Request(context.Background(), u, http.MethodPost)
+
+	body, header, err := c.DoRaw(req, http.StatusCreated)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(header.Get("Location"), len(body))
+	// Output: /images/42 4
+}
+
 func ExampleClient_Request() {
 	c, _ := client.Build()
 
