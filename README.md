@@ -423,7 +423,7 @@ middleware.Logger(log)                 // *slog.Logger
 middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors, answers 413 for *http.MaxBytesError; optional hooks run for unknown errors
 middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
 middleware.BodyLimit(n)                // limits the request body to n bytes; Errors answers a returned read past n with 413
-middleware.Deadline(d)                 // sets the write deadline, and the read deadline of a request with a body, to now plus d
+middleware.Deadline(d)                 // sets the write deadline, and the read deadline of a request with a body, to now plus d; panics if d is not positive
 ```
 
 Put `Deadline` before any custom middleware that reads the request body: once the body is consumed, a read deadline cancels the connection's context.

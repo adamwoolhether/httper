@@ -44,8 +44,13 @@ func TestDeadline(t *testing.T) {
 				resp.Body.Close()
 			}
 
-			if err := <-writeErr; !errors.Is(err, tc.wantErr) {
-				t.Fatalf("write error = %v, want %v", err, tc.wantErr)
+			select {
+			case err := <-writeErr:
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("write error = %v, want %v", err, tc.wantErr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("handler did not write")
 			}
 		})
 	}
@@ -143,6 +148,11 @@ func TestDeadline_NotSupported(t *testing.T) {
 			contentLength: 4,
 			wantErr:       http.ErrNotSupported,
 		},
+		"no read deadline, chunked body": {
+			w:             func() http.ResponseWriter { return writeDeadlineOnly{httptest.NewRecorder()} },
+			contentLength: -1,
+			wantErr:       http.ErrNotSupported,
+		},
 		"no read deadline, without body": {
 			w:          func() http.ResponseWriter { return writeDeadlineOnly{httptest.NewRecorder()} },
 			wantCalled: true,
@@ -166,6 +176,20 @@ func TestDeadline_NotSupported(t *testing.T) {
 			if called != tc.wantCalled {
 				t.Fatalf("handler called = %t, want %t", called, tc.wantCalled)
 			}
+		})
+	}
+}
+
+func TestDeadline_NotPositive(t *testing.T) {
+	for _, d := range []time.Duration{0, -time.Second} {
+		t.Run(d.String(), func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("Deadline(%v) did not panic", d)
+				}
+			}()
+
+			middleware.Deadline(d)
 		})
 	}
 }

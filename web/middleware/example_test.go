@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/adamwoolhether/httper/web/errs"
 	"github.com/adamwoolhether/httper/web/middleware"
+	"github.com/adamwoolhether/httper/web/mux"
 )
 
 // ————————————————————————————————————————————————————————————————————
@@ -133,6 +135,34 @@ func ExampleBodyLimit() {
 	// Output:
 	// 413
 	// {"code":413,"message":"request body exceeds 4 bytes"}
+}
+
+func ExampleDeadline() {
+	app := mux.New()
+
+	// The export route gets five minutes, whatever the server's WriteTimeout.
+	app.Get("/export", func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		fmt.Fprint(w, "id,name\n")
+		return nil
+	}, middleware.Deadline(5*time.Minute))
+
+	// Deadline needs a ResponseWriter from a real server, not a ResponseRecorder.
+	srv := httptest.NewServer(app)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/export")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	fmt.Println(resp.StatusCode)
+	fmt.Print(string(body))
+	// Output:
+	// 200
+	// id,name
 }
 
 func ExamplePanics() {
