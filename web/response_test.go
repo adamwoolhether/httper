@@ -477,6 +477,8 @@ func TestRespondStream_CallerContentLength(t *testing.T) {
 	short := len(data) - 1
 
 	// Each part ends a Read, so a separate part puts the extra bytes in a new Read.
+	// The boundary case also needs the last write before the boundary (4102 bytes)
+	// to exceed the 2 KiB response buffer of net/http, which an abort discards.
 	tests := map[string]struct {
 		contentLength int
 		parts         [][]byte
@@ -499,7 +501,7 @@ func TestRespondStream_CallerContentLength(t *testing.T) {
 				for i, part := range tc.parts {
 					parts[i] = bytes.NewReader(part)
 				}
-				// A plain reader, as from a file or object store, without a WriteTo method.
+				// A reader without WriteTo, so each Read fills at most the 32 KiB buffer.
 				body := struct{ io.Reader }{io.MultiReader(parts...)}
 				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", body)
 			}))
@@ -565,12 +567,14 @@ func TestRespondStream_ClientGone(t *testing.T) {
 			log, buf := newTestLogger(t)
 
 			done := make(chan struct{})
+			stop := make(chan struct{})
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(done)
 				w.Header().Set("Content-Length", strconv.FormatInt(1<<40, 10))
-				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", endlessReader{})
+				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", endlessReader{stop: stop})
 			}))
 			defer srv.Close()
+			defer close(stop) // ends a handler that is still running, so srv.Close returns
 
 			resp, err := send(srv.URL)
 			if err != nil {
@@ -579,7 +583,7 @@ func TestRespondStream_ClientGone(t *testing.T) {
 			if _, err := resp.Body.Read(make([]byte, 1)); err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			resp.Body.Close() // closes the connection, since the body is unread
+			resp.Body.Close() // closes the connection: the unread body is too large to drain
 
 			select {
 			case <-done:
@@ -622,10 +626,18 @@ func (w failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("connection reset")
 }
 
-// endlessReader fills every Read with bytes and never ends.
-type endlessReader struct{}
+// endlessReader fills every Read with bytes until stop is closed.
+type endlessReader struct {
+	stop <-chan struct{}
+}
 
-func (endlessReader) Read(p []byte) (int, error) {
+func (r endlessReader) Read(p []byte) (int, error) {
+	select {
+	case <-r.stop:
+		return 0, errors.New("stopped")
+	default:
+	}
+
 	for i := range p {
 		p[i] = 'x'
 	}
