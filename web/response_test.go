@@ -554,6 +554,34 @@ func TestRespondStream_NoProgress(t *testing.T) {
 	}
 }
 
+func TestRespondStream_EmptyReadsBetweenBytes(t *testing.T) {
+	w := httptest.NewRecorder()
+	log, _ := newTestLogger(t)
+
+	// 99 empty reads before the header and 99 after it, each run ended by bytes.
+	body := io.MultiReader(
+		&emptyReads{n: 99, err: io.EOF}, strings.NewReader("a"),
+		&emptyReads{n: 99, err: io.EOF}, strings.NewReader("b"),
+	)
+
+	var err error
+	var rec any
+	func() {
+		defer func() { rec = recover() }()
+		err = web.RespondStream(context.Background(), log, w, "text/plain", "ab.txt", body)
+	}()
+
+	if rec != nil {
+		t.Fatalf("unexpected panic: %v", rec)
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := w.Body.String(); got != "ab" {
+		t.Fatalf("body = %q, want %q", got, "ab")
+	}
+}
+
 func TestRespondStream_ClientGone(t *testing.T) {
 	// net/http watches the connection for a closed client only after it reads
 	// the request body to the end, and it does not drain an unread body over

@@ -90,14 +90,14 @@ const maxEmptyReads = 100
 // exact length of body.
 //
 // It reads the first bytes before it writes the header, so a read error in
-// that read returns the error and writes nothing. When body returns no bytes
-// and no error 100 times in a row, RespondStream handles io.ErrNoProgress as a
-// read error. An empty body writes the header and returns nil. After the header is out, a
-// read or write error is logged to log and RespondStream panics with
-// http.ErrAbortHandler, so the server aborts the connection and the client
-// does not take a cut-short body for a complete file. The log level is Warn
-// when ctx is done, and Error otherwise. On HTTP/1, a failed write to the
-// connection cancels ctx, so a client that goes away and a write past a
+// that read returns the error and writes nothing. RespondStream treats 100
+// reads in a row with no bytes and no error as the read error
+// io.ErrNoProgress. An empty body writes the header and returns nil. After the
+// header is out, a read or write error is logged to log and RespondStream
+// panics with http.ErrAbortHandler, so the server aborts the connection and
+// the client does not take a cut-short body for a complete file. The log level
+// is Warn when ctx is done, and Error otherwise. On HTTP/1, a failed write to
+// the connection cancels ctx, so a client that goes away and a write past a
 // deadline both log at Warn. Over HTTP/2, a dropped connection can still log
 // at Error.
 //
