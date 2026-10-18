@@ -367,6 +367,11 @@ func TestRespondStream_ErrorAfterHeader(t *testing.T) {
 			body:    strings.NewReader("data"),
 			wantLog: "connection reset",
 		},
+		"no progress": {
+			w:       func(w http.ResponseWriter) http.ResponseWriter { return w },
+			body:    io.MultiReader(strings.NewReader("partial"), &emptyReads{n: 1000, err: io.EOF}),
+			wantLog: io.ErrNoProgress.Error(),
+		},
 	}
 
 	for name, tc := range tests {

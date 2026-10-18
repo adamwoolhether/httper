@@ -90,9 +90,9 @@ const maxEmptyReads = 100
 // exact length of body.
 //
 // It reads the first bytes before it writes the header, so a read error in
-// that read returns the error and writes nothing. A body that returns no bytes
-// and no error 100 times in a row before the header returns io.ErrNoProgress.
-// An empty body writes the header and returns nil. After the header is out, a
+// that read returns the error and writes nothing. When body returns no bytes
+// and no error 100 times in a row, RespondStream handles io.ErrNoProgress as a
+// read error. An empty body writes the header and returns nil. After the header is out, a
 // read or write error is logged to log and RespondStream panics with
 // http.ErrAbortHandler, so the server aborts the connection and the client
 // does not take a cut-short body for a complete file. The log level is Warn
@@ -110,13 +110,11 @@ func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter,
 	}
 
 	buf := make([]byte, 32<<10)
+	body = &progressReader{r: body}
 
 	var n int
 	var readErr error
-	for i := 0; n == 0 && readErr == nil; i++ {
-		if i == maxEmptyReads {
-			return io.ErrNoProgress
-		}
+	for n == 0 && readErr == nil {
 		n, readErr = body.Read(buf)
 	}
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
@@ -144,6 +142,28 @@ func RespondStream(ctx context.Context, log *slog.Logger, w http.ResponseWriter,
 	}
 
 	return nil
+}
+
+// progressReader returns io.ErrNoProgress once maxEmptyReads reads in a row
+// return no bytes and no error.
+type progressReader struct {
+	r     io.Reader
+	empty int
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 || err != nil {
+		p.empty = 0
+		return n, err
+	}
+
+	p.empty++
+	if p.empty == maxEmptyReads {
+		return 0, io.ErrNoProgress
+	}
+
+	return 0, nil
 }
 
 // setAttachmentHeader sets Content-Type and an attachment Content-Disposition.
