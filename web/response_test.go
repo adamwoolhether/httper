@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/adamwoolhether/httper/web"
 	"github.com/adamwoolhether/httper/web/errs"
@@ -197,6 +198,30 @@ func TestRespondFile_EmptyFilename(t *testing.T) {
 
 	if got := w.Header().Get("Content-Disposition"); got != "attachment" {
 		t.Fatalf("Content-Disposition = %q, want %q", got, "attachment")
+	}
+}
+
+func TestRespond_EmptyContentType(t *testing.T) {
+	tests := map[string]func(w http.ResponseWriter) error{
+		"file": func(w http.ResponseWriter) error {
+			return web.RespondFile(context.Background(), w, "", "a.bin", []byte("data"))
+		},
+		"stream": func(w http.ResponseWriter) error {
+			return web.RespondStream(context.Background(), slog.New(slog.DiscardHandler), w, "", "a.bin", strings.NewReader("data"))
+		},
+	}
+
+	for name, respond := range tests {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+
+			if err := respond(w); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := w.Header().Get("Content-Type"); got != "application/octet-stream" {
+				t.Fatalf("Content-Type = %q, want %q", got, "application/octet-stream")
+			}
+		})
 	}
 }
 
@@ -449,14 +474,19 @@ func TestRespondStream_AbortReachesClient(t *testing.T) {
 
 func TestRespondStream_CallerContentLength(t *testing.T) {
 	data := testData(100<<10 + 7)
+	short := len(data) - 1
 
+	// Each part ends a Read, so a separate part puts the extra bytes in a new Read.
 	tests := map[string]struct {
 		contentLength int
+		parts         [][]byte
 		wantErr       bool
+		want          []byte
 	}{
-		"matches body":       {contentLength: len(data)},
-		"less than the body": {contentLength: len(data) - 1, wantErr: true},
-		"more than the body": {contentLength: len(data) + 1, wantErr: true},
+		"matches body":                    {contentLength: len(data), parts: [][]byte{data}, want: data},
+		"body longer, within a read":      {contentLength: short, parts: [][]byte{data}, wantErr: true},
+		"body longer, at a read boundary": {contentLength: short, parts: [][]byte{data[:short], data[short:]}, want: data[:short]},
+		"body shorter":                    {contentLength: len(data) + 1, parts: [][]byte{data}, wantErr: true},
 	}
 
 	for name, tc := range tests {
@@ -465,7 +495,13 @@ func TestRespondStream_CallerContentLength(t *testing.T) {
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Length", strconv.Itoa(tc.contentLength))
-				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", bytes.NewReader(data))
+				parts := make([]io.Reader, len(tc.parts))
+				for i, part := range tc.parts {
+					parts[i] = bytes.NewReader(part)
+				}
+				// A plain reader, as from a file or object store, without a WriteTo method.
+				body := struct{ io.Reader }{io.MultiReader(parts...)}
+				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", body)
 			}))
 			defer srv.Close()
 
@@ -473,8 +509,86 @@ func TestRespondStream_CallerContentLength(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("client error = %v, want error %t", err, tc.wantErr)
 			}
-			if err == nil && !bytes.Equal(got, data) {
-				t.Fatalf("body has %d bytes, want the %d sent bytes", len(got), len(data))
+			if err == nil && !bytes.Equal(got, tc.want) {
+				t.Fatalf("body has %d bytes, want %d bytes", len(got), len(tc.want))
+			}
+		})
+	}
+}
+
+func TestRespondStream_NoProgress(t *testing.T) {
+	tests := map[string]struct {
+		emptyReads int
+		wantErr    error
+	}{
+		"99 empty reads, then EOF": {emptyReads: 99},
+		"100 empty reads":          {emptyReads: 100, wantErr: io.ErrNoProgress},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			log, _ := newTestLogger(t)
+			body := &emptyReads{n: tc.emptyReads, err: io.EOF}
+
+			err := web.RespondStream(context.Background(), log, w, "text/csv", "report.csv", body)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+
+			wantDisposition := "attachment; filename=report.csv"
+			if tc.wantErr != nil {
+				wantDisposition = ""
+			}
+			if got := w.Header().Get("Content-Disposition"); got != wantDisposition {
+				t.Fatalf("Content-Disposition = %q, want %q", got, wantDisposition)
+			}
+		})
+	}
+}
+
+func TestRespondStream_ClientGone(t *testing.T) {
+	// net/http watches the connection for a closed client only after it reads
+	// the request body to the end, and it does not drain an unread body over
+	// 256 KiB. With a Content-Length, its ReadFrom writes to the connection
+	// directly, and a failed write there leaves ctx live. So in the POST case,
+	// only the writes of RespondStream can cancel ctx.
+	tests := map[string]func(url string) (*http.Response, error){
+		"GET": http.Get,
+		"POST with a large unread body": func(url string) (*http.Response, error) {
+			return http.Post(url, "text/plain", strings.NewReader(strings.Repeat("x", 1<<20)))
+		},
+	}
+
+	for name, send := range tests {
+		t.Run(name, func(t *testing.T) {
+			log, buf := newTestLogger(t)
+
+			done := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(done)
+				w.Header().Set("Content-Length", strconv.FormatInt(1<<40, 10))
+				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", endlessReader{})
+			}))
+			defer srv.Close()
+
+			resp, err := send(srv.URL)
+			if err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if _, err := resp.Body.Read(make([]byte, 1)); err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			resp.Body.Close() // closes the connection, since the body is unread
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("handler did not end after the client went away")
+			}
+
+			if !strings.Contains(buf.String(), "level=WARN") || strings.Contains(buf.String(), "level=ERROR") {
+				t.Fatalf("log should have a WARN entry and no ERROR entry:\n%s", buf.String())
 			}
 		})
 	}
@@ -506,6 +620,17 @@ type failingWriter struct {
 
 func (w failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("connection reset")
+}
+
+// endlessReader fills every Read with bytes and never ends.
+type endlessReader struct{}
+
+func (endlessReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+
+	return len(p), nil
 }
 
 // emptyReads returns no bytes and no error n times, then err.

@@ -489,6 +489,7 @@ web.Redirect(w, r, url, code)               // HTTP redirect (3xx)
 
 `RespondStream` reads the first bytes before it writes the header, so a read error in that read returns the error and `Errors` can still answer it.
 After the header is out, it logs a read or write error and panics with `http.ErrAbortHandler`, so the server aborts the connection and the client does not take a cut-short body for a complete file.
+It logs at Warn when the request context is done, and at Error otherwise. On HTTP/1, a failed write to the connection cancels the request context, so a client that goes away and a write past a deadline both log at Warn. Over HTTP/2, a dropped connection can still log at Error.
 `Panics` re-panics `http.ErrAbortHandler`.
 
 ### Structured Errors
