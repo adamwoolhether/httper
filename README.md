@@ -434,9 +434,13 @@ A lower priority wraps a higher one, so `Logger` is the outermost route middlewa
 middleware.CORS(origins, headers...)   // []string origins, optional custom headers
 middleware.CSRF(origins...)            // exact scheme://host[:port] trusted origins, no wildcards; panics on an invalid one
 middleware.Logger(log)                 // *slog.Logger
-middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors; optional hooks run for unknown errors
+middleware.Errors(log, onUnknown...)   // *slog.Logger; catches *errs.Error and FieldErrors, answers 413 for *http.MaxBytesError; optional hooks run for unknown errors
 middleware.Panics(onPanic...)          // recovers from panics; optional hooks run for each panic
+middleware.BodyLimit(n)                // limits the request body to n bytes; Errors answers a returned read past n with 413
+middleware.Deadline(d)                 // sets the write deadline, and the read deadline of a request with a body, to now plus d; panics if d is not positive
 ```
+
+Put `Deadline` before any custom middleware that reads the request body: once the body is consumed, a read deadline cancels the connection's context.
 
 `Errors` and `Panics` accept optional hooks of type `func(ctx context.Context, err error)`. A hook is a closure, so it can capture any client it needs, such as an error tracker:
 
@@ -447,7 +451,7 @@ report := func(ctx context.Context, err error) {
 
 app := mux.New(mux.WithMiddleware(
 	middleware.Logger(log),
-	middleware.Errors(log, report), // errors that are not *errs.Error or FieldErrors
+	middleware.Errors(log, report), // errors that are not *errs.Error, FieldErrors, or *http.MaxBytesError
 	middleware.Panics(report),      // every panic except http.ErrAbortHandler
 ))
 ```
@@ -492,8 +496,16 @@ web.Decode(r, &input)                        // JSON decode; validates a struct 
 web.DecodeLimit(w, r, &input, maxBytes)      // Decode with the body limited to maxBytes
 web.RespondJSON(ctx, w, statusCode, data)    // JSON response
 web.RespondError(ctx, w, errsErr)            // structured error response
+web.RespondFile(ctx, w, contentType, filename, data)      // 200 attachment with Content-Length
+web.RespondStream(ctx, log, w, contentType, filename, rd) // 200 attachment copied from an io.Reader
 web.Redirect(w, r, url, code)               // HTTP redirect (3xx)
 ```
+
+`RespondStream` reads the first bytes before it writes the header, so a read error in that read returns the error and `Errors` can still answer it.
+After the header is out, it logs a read or write error and panics with `http.ErrAbortHandler`, so the server aborts the connection and the client does not take a cut-short body for a complete file.
+Set a `Content-Length` only to the exact body length: a longer body can reach the client cut at `Content-Length` with no error.
+It logs at Warn when the request context is done, and at Error otherwise. On HTTP/1, a failed write to the connection cancels the request context, so a client that goes away and a write past a deadline both log at Warn. Over HTTP/2, a dropped connection can still log at Error.
+`Panics` re-panics `http.ErrAbortHandler`.
 
 ### Structured Errors
 

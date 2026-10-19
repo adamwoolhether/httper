@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -254,6 +255,44 @@ func ExampleRespondError() {
 	// Output:
 	// 404
 	// {"code":404,"message":"user not found"}
+}
+
+func ExampleRespondFile() {
+	w := httptest.NewRecorder()
+
+	data := []byte("id,name\n1,alice\n")
+	if err := web.RespondFile(context.Background(), w, "text/csv", "users.csv", data); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(w.Code)
+	fmt.Println(w.Header().Get("Content-Disposition"))
+	fmt.Println(w.Header().Get("Content-Length"))
+	// Output:
+	// 200
+	// attachment; filename=users.csv
+	// 16
+}
+
+func ExampleRespondStream() {
+	w := httptest.NewRecorder()
+	log := slog.New(slog.DiscardHandler)
+
+	body := strings.NewReader("id,name\n1,alice\n")
+	if err := web.RespondStream(context.Background(), log, w, "text/csv", "users.csv", body); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	fmt.Println(w.Code)
+	fmt.Println(w.Header().Get("Content-Disposition"))
+	fmt.Print(w.Body.String())
+	// Output:
+	// 200
+	// attachment; filename=users.csv
+	// id,name
+	// 1,alice
 }
 
 func ExampleRedirect() {
