@@ -18,6 +18,9 @@
 //	req, err := client.Request(ctx, u, http.MethodGet)
 //	err = c.Do(req, http.StatusOK, client.WithDestination(&result))
 //
+// Use [Client.DoRaw] for a body that is not JSON, or to read a response
+// header such as Location.
+//
 // # Downloading Files
 //
 // Stream a response body directly to disk with optional checksum

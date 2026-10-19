@@ -115,6 +115,33 @@ func (c *Client) Do(req *http.Request, expCode int, opts ...DoOption) error {
 	return c.exec(req, expCode, doFunc)
 }
 
+// DoRaw fires the request and returns the full response body and the response headers.
+// For a status other than expCode, it returns the same [*UnexpectedStatusError] as [Client.Do].
+// Use it for a body that is not JSON, or for a response header such as Location.
+func (c *Client) DoRaw(req *http.Request, expCode int) ([]byte, http.Header, error) {
+	var (
+		body   []byte
+		header http.Header
+	)
+
+	rawFunc := func(resp *http.Response) error {
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading body: %w", err)
+		}
+
+		body, header = b, resp.Header
+
+		return nil
+	}
+
+	if err := c.exec(req, expCode, rawFunc); err != nil {
+		return nil, nil, err
+	}
+
+	return body, header, nil
+}
+
 // Download executes a request that's intended to stream the response body it to destPath.
 // Data streams to a temp file in the same directory, then the temp file is renamed to
 // destPath on success or cleared on failure. Cancellation of an in-progress download can
