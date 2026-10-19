@@ -506,7 +506,7 @@ func TestRespondStream_CallerContentLength(t *testing.T) {
 				for i, part := range tc.parts {
 					parts[i] = bytes.NewReader(part)
 				}
-				// A reader without WriteTo, so each Read fills at most the 32 KiB buffer.
+				// A reader without WriteTo, so the read sizes do not depend on how RespondStream wraps body.
 				body := struct{ io.Reader }{io.MultiReader(parts...)}
 				_ = web.RespondStream(r.Context(), log, w, "application/octet-stream", "data.bin", body)
 			}))
